@@ -1,0 +1,182 @@
+{
+  "schema_version": "0.1.0",
+  "learner": {
+    "learner_id": "local-learner",
+    "explicit_preferences": {
+      "response_language": "zh-CN",
+      "explanation_density": "balanced",
+      "interaction_pace": "chunked",
+      "notes": [
+        "Prefer examples connected to code the learner may actually write."
+      ]
+    },
+    "background_claims": [
+      {
+        "claim_id": "claim-js-basics",
+        "scope": "javascript",
+        "statement": "The learner reports being comfortable with functions and callbacks.",
+        "basis": "user_declared",
+        "confidence": "high",
+        "last_confirmed_at": "2026-08-21T02:00:00Z"
+      }
+    ],
+    "adaptation_signals": [
+      {
+        "signal_id": "signal-queue-diagram",
+        "scope": "javascript-runtime",
+        "strategy": "diagram",
+        "outcome": "helpful",
+        "note": "A queue diagram clarified execution order in this topic; keep the inference local for now.",
+        "confidence": "medium",
+        "observed_at": "2026-08-21T02:18:00Z",
+        "expires_at": null
+      }
+    ]
+  },
+  "topics": [
+    {
+      "topic_id": "topic-js-event-loop",
+      "title": "JavaScript event loop",
+      "aliases": [
+        "JS event loop"
+      ],
+      "status": "paused",
+      "central_model": "Synchronous code runs on the call stack; queued work becomes eligible only when the stack is clear, with microtasks handled before the next task.",
+      "concepts_covered": [
+        {
+          "concept_key": "javascript.call-stack",
+          "concept": "Call stack",
+          "aliases": [
+            "JS call stack"
+          ],
+          "summary": "The learner said the single-stack model was clear after tracing a short synchronous example.",
+          "evidence_state": "user_reports_clear"
+        },
+        {
+          "concept_key": "javascript.microtask-queue",
+          "concept": "Microtask queue",
+          "aliases": [
+            "Promise job queue"
+          ],
+          "summary": "The ordering rule was explained, but the session ended before the learner reacted to the final trace.",
+          "evidence_state": "delivered_unconfirmed"
+        }
+      ],
+      "useful_anchors": [
+        "Function calls use a last-in, first-out stack.",
+        "Callbacks run later rather than interrupting current synchronous code."
+      ],
+      "helpful_approaches": [
+        "Tracing stack, microtask queue, and task queue side by side helped with ordering."
+      ],
+      "unhelpful_approaches": [
+        "Starting from host specification terminology was too abstract."
+      ],
+      "unresolved_questions": [
+        "Why do promise callbacks run before setTimeout callbacks that were queued earlier?"
+      ],
+      "suggested_next_step": "Explain the causal reason for the microtask checkpoint, then revisit the same code trace.",
+      "source_links": [
+        "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Event_loop"
+      ],
+      "updated_at": "2026-08-21T02:20:00Z"
+    }
+  ],
+  "open_session": {
+    "session_id": "session-event-loop-001",
+    "topic_id": "topic-js-event-loop",
+    "status": "paused",
+    "revision": 3,
+    "goal": {
+      "purpose": "Predict the order of asynchronous JavaScript code while debugging frontend behavior.",
+      "target_depth": "apply",
+      "time_budget_minutes": 30
+    },
+    "diagnostic": {
+      "status": "complete",
+      "questions_asked": 3,
+      "summary": [
+        {
+          "concept": "Function call order",
+          "starting_point": "known",
+          "confidence": "medium"
+        },
+        {
+          "concept": "Callback queue",
+          "starting_point": "partial",
+          "confidence": "medium"
+        },
+        {
+          "concept": "Microtasks versus tasks",
+          "starting_point": "unknown",
+          "confidence": "high"
+        }
+      ],
+      "extension_reason": null
+    },
+    "explanation": {
+      "current_focus": "Why promise callbacks run before timer callbacks",
+      "current_layer": "worked_example",
+      "plan_summary": "Anchor on the known call stack, trace one timer-and-promise example, then contrast microtask and task checkpoints.",
+      "prior_anchors": [
+        "Function calls use a last-in, first-out stack.",
+        "Callbacks run later rather than interrupting current synchronous code."
+      ],
+      "mental_model_summary": "When the stack empties, drain eligible microtasks before selecting the next task.",
+      "approaches_used": [
+        {
+          "strategy": "formal_derivation",
+          "focus": "Host and ECMAScript terminology",
+          "user_signal": "too_hard"
+        },
+        {
+          "strategy": "diagram",
+          "focus": "Stack, microtask queue, and task queue trace",
+          "user_signal": "helpful"
+        }
+      ],
+      "unresolved_confusions": [
+        {
+          "description": "The learner still needs the reason behind microtask priority, not only the ordering rule.",
+          "kind": "skipped_step",
+          "resolved": false
+        }
+      ],
+      "last_user_signal": "need_another_explanation"
+    },
+    "resume_cursor": {
+      "last_delivered_unit": "Traced synchronous statements, one resolved Promise, and one zero-delay timer through the three queues.",
+      "evidence_summary": [
+        {
+          "concept": "Call stack",
+          "state": "user_reports_clear"
+        },
+        {
+          "concept": "Microtask ordering",
+          "state": "delivered_unconfirmed",
+          "note": "Do not claim this is understood when resuming."
+        }
+      ],
+      "unresolved_confusions": [
+        {
+          "description": "The learner wants the causal reason for draining microtasks before the next task.",
+          "kind": "skipped_step",
+          "resolved": false
+        }
+      ],
+      "next_teaching_move": {
+        "kind": "explain",
+        "instruction": "Use a browser rendering consistency example to explain why microtasks form a checkpoint before the next task, then return to the saved code trace."
+      },
+      "do_not_repeat": [
+        "Do not restart with specification terminology.",
+        "Do not re-run the three-question diagnosis."
+      ],
+      "resume_message": "上次我们已经用三条队列追踪了代码执行顺序；调用栈部分你表示清楚，但 microtask 为什么优先还没有讲透。接下来我会换成浏览器完成一轮更新的例子解释这个原因。",
+      "saved_at": "2026-08-21T02:20:00Z"
+    },
+    "created_at": "2026-08-21T02:01:00Z",
+    "updated_at": "2026-08-21T02:20:00Z"
+  },
+  "updated_at": "2026-08-21T02:20:00Z"
+}

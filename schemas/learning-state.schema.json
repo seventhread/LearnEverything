@@ -1,0 +1,834 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://learn-everything.local/schemas/learning-state.schema.json",
+  "title": "LearnEverything MVP learning state",
+  "description": "A compact, explanation-first state for one local learner and at most one open session.",
+  "$comment": "The CLI/SQLite layer must also enforce referential and lifecycle invariants: open_session.topic_id references an existing topic; active maps to started; paused maps to paused; no other topic is open; close updates the topic and clears open_session atomically.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "learner",
+    "topics",
+    "open_session",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "learner": {
+      "$ref": "#/$defs/learner"
+    },
+    "topics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/topicMemory"
+      }
+    },
+    "open_session": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/session"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "updated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "learner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "learner_id",
+        "explicit_preferences",
+        "background_claims",
+        "adaptation_signals"
+      ],
+      "properties": {
+        "learner_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "explicit_preferences": {
+          "$ref": "#/$defs/explicitPreferences"
+        },
+        "background_claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/backgroundClaim"
+          }
+        },
+        "adaptation_signals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/adaptationSignal"
+          }
+        }
+      }
+    },
+    "explicitPreferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "response_language": {
+          "type": "string",
+          "minLength": 2
+        },
+        "explanation_density": {
+          "type": "string",
+          "enum": [
+            "brief",
+            "balanced",
+            "deep"
+          ]
+        },
+        "interaction_pace": {
+          "type": "string",
+          "enum": [
+            "continuous",
+            "chunked"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "backgroundClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "scope",
+        "statement",
+        "basis",
+        "confidence",
+        "last_confirmed_at"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "description": "Topic or domain in which the claim is relevant.",
+          "minLength": 1
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "user_declared",
+            "observed",
+            "imported"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "last_confirmed_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "adaptationSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signal_id",
+        "scope",
+        "strategy",
+        "outcome",
+        "confidence",
+        "observed_at"
+      ],
+      "properties": {
+        "signal_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "plain_language",
+            "analogy",
+            "worked_example",
+            "diagram",
+            "comparison",
+            "counterexample",
+            "step_by_step",
+            "formal_derivation"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "helpful",
+            "not_helpful",
+            "too_abstract",
+            "too_verbose",
+            "too_fast",
+            "too_simple",
+            "needs_more_evidence"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "expires_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "topicMemory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic_id",
+        "title",
+        "status",
+        "central_model",
+        "concepts_covered",
+        "helpful_approaches",
+        "unhelpful_approaches",
+        "unresolved_questions",
+        "updated_at"
+      ],
+      "properties": {
+        "topic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "started",
+            "paused",
+            "closed"
+          ]
+        },
+        "central_model": {
+          "type": "string",
+          "description": "Compact summary of the main explanatory model already covered.",
+          "maxLength": 3000
+        },
+        "concepts_covered": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/conceptNote"
+          }
+        },
+        "useful_anchors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "helpful_approaches": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "unhelpful_approaches": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "unresolved_questions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "suggested_next_step": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "source_links": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "conceptNote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concept",
+        "summary",
+        "evidence_state"
+      ],
+      "properties": {
+        "concept_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional stable key used for exact prerequisite retrieval across topics."
+        },
+        "concept": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "evidence_state": {
+          "type": "string",
+          "description": "Observed interaction evidence, not a mastery score.",
+          "enum": [
+            "delivered_unconfirmed",
+            "user_reports_clear",
+            "needs_revisit"
+          ]
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "topic_id",
+        "status",
+        "revision",
+        "goal",
+        "diagnostic",
+        "explanation",
+        "resume_cursor",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "topic_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "paused"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "goal": {
+          "$ref": "#/$defs/goal"
+        },
+        "diagnostic": {
+          "$ref": "#/$defs/diagnostic"
+        },
+        "explanation": {
+          "$ref": "#/$defs/explanationState"
+        },
+        "resume_cursor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/resumeCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "paused"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "resume_cursor": {
+                "$ref": "#/$defs/resumeCursor"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "purpose",
+        "target_depth"
+      ],
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "target_depth": {
+          "type": "string",
+          "enum": [
+            "orientation",
+            "explain",
+            "apply",
+            "independent"
+          ]
+        },
+        "time_budget_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 480
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "questions_asked",
+        "summary"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_needed",
+            "skipped",
+            "complete",
+            "inconclusive"
+          ]
+        },
+        "questions_asked": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "summary": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/diagnosticSummary"
+          }
+        },
+        "extension_reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "questions_asked": {
+                "minimum": 4
+              }
+            },
+            "required": [
+              "questions_asked"
+            ]
+          },
+          "then": {
+            "required": [
+              "extension_reason"
+            ],
+            "properties": {
+              "extension_reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            }
+          }
+        }
+      ]
+    },
+    "diagnosticSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concept",
+        "starting_point"
+      ],
+      "properties": {
+        "concept": {
+          "type": "string",
+          "minLength": 1
+        },
+        "starting_point": {
+          "type": "string",
+          "enum": [
+            "known",
+            "partial",
+            "unknown",
+            "possible_misconception"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        }
+      }
+    },
+    "explanationState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_focus",
+        "current_layer",
+        "plan_summary",
+        "prior_anchors",
+        "mental_model_summary",
+        "approaches_used",
+        "unresolved_confusions",
+        "last_user_signal"
+      ],
+      "properties": {
+        "current_focus": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "current_layer": {
+          "type": "string",
+          "enum": [
+            "orientation",
+            "mental_model",
+            "worked_example",
+            "details",
+            "contrast",
+            "synthesis"
+          ]
+        },
+        "plan_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        },
+        "prior_anchors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "mental_model_summary": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "approaches_used": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/explanationApproach"
+          }
+        },
+        "unresolved_confusions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/confusion"
+          }
+        },
+        "last_user_signal": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "continue",
+            "clear",
+            "too_hard",
+            "too_easy",
+            "need_another_explanation",
+            "need_example",
+            "need_prerequisite",
+            "want_deeper",
+            "want_to_try"
+          ]
+        }
+      }
+    },
+    "explanationApproach": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "focus",
+        "user_signal"
+      ],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "plain_language",
+            "analogy",
+            "worked_example",
+            "diagram",
+            "comparison",
+            "counterexample",
+            "step_by_step",
+            "formal_derivation"
+          ]
+        },
+        "focus": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "user_signal": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "helpful",
+            "not_helpful",
+            "too_hard",
+            "too_easy"
+          ]
+        }
+      }
+    },
+    "confusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "description",
+        "kind"
+      ],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "missing_prerequisite",
+            "unfamiliar_term",
+            "skipped_step",
+            "unsuitable_example",
+            "too_abstract",
+            "too_detailed",
+            "other",
+            "unknown"
+          ]
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      }
+    },
+    "resumeCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "last_delivered_unit",
+        "evidence_summary",
+        "unresolved_confusions",
+        "next_teaching_move",
+        "resume_message",
+        "saved_at"
+      ],
+      "properties": {
+        "last_delivered_unit": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the system finished explaining; this does not imply that the learner understood it."
+        },
+        "evidence_summary": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recoverySignal"
+          }
+        },
+        "unresolved_confusions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/confusion"
+          }
+        },
+        "next_teaching_move": {
+          "$ref": "#/$defs/nextTeachingMove"
+        },
+        "do_not_repeat": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "resume_message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "saved_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "recoverySignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concept",
+        "state"
+      ],
+      "properties": {
+        "concept": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "delivered_unconfirmed",
+            "user_reports_clear",
+            "needs_revisit"
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    },
+    "nextTeachingMove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "instruction"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "explain",
+            "example",
+            "diagram",
+            "clarify",
+            "practice",
+            "synthesize",
+            "close"
+          ]
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    }
+  }
+}
