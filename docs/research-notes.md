@@ -1,8 +1,12 @@
 # Research notes: explanation-first tutoring
 
+- Status: non-normative research background
+- Canonical design: [`SKILL-DESIGN.zh-CN.md`](SKILL-DESIGN.zh-CN.md)
 - Date checked: 2026-08-21
 - Purpose: validate the MVP's teaching center and identify implementation patterns worth borrowing
 - Scope: primary learning-science sources and a few directly relevant open-source agent tutors; this is not a market ranking
+
+These notes record supporting evidence and implementation references. They do not define product behavior, state semantics, or acceptance requirements; if they differ from the canonical design, the canonical design governs.
 
 ## What the evidence changes
 

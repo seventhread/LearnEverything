@@ -1,179 +1,159 @@
 {
-  "schema_version": "0.1.0",
+  "schema_version": "0.2.0",
   "learner": {
-    "learner_id": "local-learner",
-    "explicit_preferences": {
-      "response_language": "zh-CN",
-      "explanation_density": "balanced",
-      "interaction_pace": "chunked",
-      "notes": [
-        "Prefer examples connected to code the learner may actually write."
-      ]
-    },
-    "background_claims": [
+    "explicit_preferences": [
       {
-        "claim_id": "claim-js-basics",
-        "scope": "javascript",
-        "statement": "The learner reports being comfortable with functions and callbacks.",
+        "preference_id": "pref-language-zh",
+        "scope": "global",
+        "instruction": "使用中文讲解。",
+        "updated_at": "2026-08-21T01:30:00Z"
+      },
+      {
+        "preference_id": "pref-cs-code-examples",
+        "scope": "cs",
+        "instruction": "讲解计算机知识时，尽量连接到实际可能编写的代码。",
+        "updated_at": "2026-08-21T01:30:00Z"
+      }
+    ],
+    "concept_notes": [
+      {
+        "concept_key": "javascript.call_stack",
+        "aliases": ["JS call stack", "JavaScript 调用栈"],
+        "summary": "此前会话中，用户能用后进先出解释同步函数调用顺序。",
+        "state": "known",
+        "basis": "closed_topic",
+        "last_observed_at": "2026-08-20T09:10:00Z"
+      },
+      {
+        "concept_key": "javascript.callbacks",
+        "aliases": ["JS callbacks", "JavaScript 回调"],
+        "summary": "用户表示熟悉函数和回调的基本写法。",
+        "state": "known",
         "basis": "user_declared",
-        "confidence": "high",
-        "last_confirmed_at": "2026-08-21T02:00:00Z"
+        "last_observed_at": "2026-08-20T09:00:00Z"
       }
     ],
     "adaptation_signals": [
       {
-        "signal_id": "signal-queue-diagram",
-        "scope": "javascript-runtime",
-        "strategy": "diagram",
-        "outcome": "helpful",
-        "note": "A queue diagram clarified execution order in this topic; keep the inference local for now.",
-        "confidence": "medium",
-        "observed_at": "2026-08-21T02:18:00Z",
-        "expires_at": null
+        "signal_id": "signal-cs-runtime-code-trace",
+        "scope": "cs.javascript.runtime",
+        "condition": "execution_order",
+        "strategy": "numbered_code_trace",
+        "status": "candidate",
+        "support_count": 1,
+        "last_evidence_session_id": "session-callbacks-001",
+        "basis_summary": "此前独立会话中，用户明确表示编号执行追踪帮助理解同步调用顺序。",
+        "last_observed_at": "2026-08-20T09:18:00Z"
       }
     ]
   },
-  "topics": [
+  "topic_memories": [
     {
-      "topic_id": "topic-js-event-loop",
-      "title": "JavaScript event loop",
-      "aliases": [
-        "JS event loop"
-      ],
-      "status": "paused",
-      "central_model": "Synchronous code runs on the call stack; queued work becomes eligible only when the stack is clear, with microtasks handled before the next task.",
-      "concepts_covered": [
-        {
-          "concept_key": "javascript.call-stack",
-          "concept": "Call stack",
-          "aliases": [
-            "JS call stack"
-          ],
-          "summary": "The learner said the single-stack model was clear after tracing a short synchronous example.",
-          "evidence_state": "user_reports_clear"
-        },
-        {
-          "concept_key": "javascript.microtask-queue",
-          "concept": "Microtask queue",
-          "aliases": [
-            "Promise job queue"
-          ],
-          "summary": "The ordering rule was explained, but the session ended before the learner reacted to the final trace.",
-          "evidence_state": "delivered_unconfirmed"
-        }
-      ],
-      "useful_anchors": [
-        "Function calls use a last-in, first-out stack.",
-        "Callbacks run later rather than interrupting current synchronous code."
-      ],
-      "helpful_approaches": [
-        "Tracing stack, microtask queue, and task queue side by side helped with ordering."
-      ],
-      "unhelpful_approaches": [
-        "Starting from host specification terminology was too abstract."
-      ],
-      "unresolved_questions": [
-        "Why do promise callbacks run before setTimeout callbacks that were queued earlier?"
-      ],
-      "suggested_next_step": "Explain the causal reason for the microtask checkpoint, then revisit the same code trace.",
-      "source_links": [
-        "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Event_loop"
-      ],
-      "updated_at": "2026-08-21T02:20:00Z"
+      "topic_id": "topic-js-callback-basics",
+      "title": "JavaScript 回调基础",
+      "aliases": ["JS callbacks"],
+      "goal": {
+        "purpose": "看懂回调函数如何作为参数传入并在稍后调用。",
+        "target_depth": "explain",
+        "completion_items": [
+          {
+            "item_id": "dw-01",
+            "description": "解释函数可以作为值传递。",
+            "status": "covered"
+          },
+          {
+            "item_id": "dw-02",
+            "description": "用一个最小代码例子解释注册回调与调用回调的区别。",
+            "status": "covered"
+          }
+        ]
+      },
+      "summary": "用户已看懂函数作为值传递，以及注册回调不等于立即调用回调；讲解使用了一个最小 JavaScript 例子。",
+      "unresolved_questions": [],
+      "suggested_next_step": "需要时可继续学习异步运行时如何决定回调的实际执行时机。",
+      "source_links": ["https://developer.mozilla.org/en-US/docs/Glossary/Callback_function"],
+      "close_reason": "scope_delivered",
+      "closed_at": "2026-08-20T09:20:00Z"
     }
   ],
   "open_session": {
     "session_id": "session-event-loop-001",
     "topic_id": "topic-js-event-loop",
+    "topic_title": "JavaScript Event Loop",
     "status": "paused",
     "revision": 3,
     "goal": {
-      "purpose": "Predict the order of asynchronous JavaScript code while debugging frontend behavior.",
+      "purpose": "在调试前端代码时，能够预测异步 JavaScript 的执行顺序。",
       "target_depth": "apply",
-      "time_budget_minutes": 30
+      "completion_items": [
+        {
+          "item_id": "dw-01",
+          "description": "解释调用栈、任务队列和微任务队列各自承担什么角色。",
+          "status": "covered"
+        },
+        {
+          "item_id": "dw-02",
+          "description": "解释栈清空后为何先处理微任务，再选择下一个任务。",
+          "status": "pending"
+        },
+        {
+          "item_id": "dw-03",
+          "description": "用一个同时含 Promise 和 setTimeout 的例子完成逐步执行追踪。",
+          "status": "pending"
+        }
+      ]
     },
-    "diagnostic": {
-      "status": "complete",
-      "questions_asked": 3,
+    "diagnosis": {
+      "phase": "complete",
+      "basis": "questions",
+      "starting_point": "从用户已熟悉的调用栈与回调开始，补上微任务和任务的调度关系。",
       "summary": [
         {
-          "concept": "Function call order",
-          "starting_point": "known",
-          "confidence": "medium"
+          "concept_key": "javascript.call_stack",
+          "starting_state": "known"
         },
         {
-          "concept": "Callback queue",
-          "starting_point": "partial",
-          "confidence": "medium"
+          "concept_key": "javascript.callback_queue",
+          "starting_state": "partial"
         },
         {
-          "concept": "Microtasks versus tasks",
-          "starting_point": "unknown",
-          "confidence": "high"
+          "concept_key": "javascript.microtasks",
+          "starting_state": "unknown"
         }
-      ],
-      "extension_reason": null
+      ]
     },
-    "explanation": {
-      "current_focus": "Why promise callbacks run before timer callbacks",
-      "current_layer": "worked_example",
-      "plan_summary": "Anchor on the known call stack, trace one timer-and-promise example, then contrast microtask and task checkpoints.",
-      "prior_anchors": [
-        "Function calls use a last-in, first-out stack.",
-        "Callbacks run later rather than interrupting current synchronous code."
-      ],
-      "mental_model_summary": "When the stack empties, drain eligible microtasks before selecting the next task.",
-      "approaches_used": [
-        {
-          "strategy": "formal_derivation",
-          "focus": "Host and ECMAScript terminology",
-          "user_signal": "too_hard"
-        },
-        {
-          "strategy": "diagram",
-          "focus": "Stack, microtask queue, and task queue trace",
-          "user_signal": "helpful"
-        }
-      ],
+    "teaching_state": {
+      "confirmed_summary": "已经用调用栈、任务队列和微任务队列解释基本执行顺序，并追踪了同步语句与一个已解决 Promise；队列角色已经讲清，微任务优先的因果理由仍未确认交付。",
       "unresolved_confusions": [
         {
-          "description": "The learner still needs the reason behind microtask priority, not only the ordering rule.",
-          "kind": "skipped_step",
-          "resolved": false
+          "description": "用户需要理解为什么浏览器会在选择下一个任务前形成微任务检查点，而不只是记住执行顺序。",
+          "kind": "skipped_step"
         }
       ],
-      "last_user_signal": "need_another_explanation"
-    },
-    "resume_cursor": {
-      "last_delivered_unit": "Traced synchronous statements, one resolved Promise, and one zero-delay timer through the three queues.",
-      "evidence_summary": [
+      "local_teaching_notes": [
         {
-          "concept": "Call stack",
-          "state": "user_reports_clear"
+          "scope": "cs.javascript.runtime",
+          "condition": "execution_order",
+          "strategy": "specification_first",
+          "outcome": "hindered",
+          "summary": "用户明确表示从宿主规范术语开始过于抽象。",
+          "observed_at": "2026-08-21T02:10:00Z"
         },
         {
-          "concept": "Microtask ordering",
-          "state": "delivered_unconfirmed",
-          "note": "Do not claim this is understood when resuming."
+          "scope": "cs.javascript.runtime",
+          "condition": "execution_order",
+          "strategy": "numbered_queue_trace",
+          "outcome": "helped",
+          "summary": "用户明确表示并排编号追踪三种执行结构后更容易看清先后关系。",
+          "observed_at": "2026-08-21T02:18:00Z"
         }
       ],
-      "unresolved_confusions": [
-        {
-          "description": "The learner wants the causal reason for draining microtasks before the next task.",
-          "kind": "skipped_step",
-          "resolved": false
-        }
-      ],
-      "next_teaching_move": {
-        "kind": "explain",
-        "instruction": "Use a browser rendering consistency example to explain why microtasks form a checkpoint before the next task, then return to the saved code trace."
-      },
-      "do_not_repeat": [
-        "Do not restart with specification terminology.",
-        "Do not re-run the three-question diagnosis."
-      ],
-      "resume_message": "上次我们已经用三条队列追踪了代码执行顺序；调用栈部分你表示清楚，但 microtask 为什么优先还没有讲透。接下来我会换成浏览器完成一轮更新的例子解释这个原因。",
-      "saved_at": "2026-08-21T02:20:00Z"
+      "current_focus": "解释微任务检查点为何位于下一个任务之前。",
+      "next_move": "恢复时先保守重述尚未确认送达的浏览器更新例子，再回到同一个 Promise 与 setTimeout 代码完成执行追踪。"
+    },
+    "unconfirmed_unit": {
+      "summary": "用浏览器完成一轮更新的一致性需求解释微任务检查点，并准备把这个原因接回 Promise 与 setTimeout 的执行顺序。",
+      "may_cover": ["dw-02"]
     },
     "created_at": "2026-08-21T02:01:00Z",
     "updated_at": "2026-08-21T02:20:00Z"
