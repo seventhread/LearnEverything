@@ -1,0 +1,4 @@
+interface:
+  display_name: "LearnEverything"
+  short_description: "诊断合适起点，以讲解为主学习任意主题并保存进度"
+  default_prompt: "使用 $learn-everything 帮我从合适的起点学懂一个新主题，并支持中断后继续。"

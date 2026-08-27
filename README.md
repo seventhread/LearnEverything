@@ -30,6 +30,23 @@ It is not a quiz-first tutor, a mastery-scoring system, or a pre-generated curri
 
 ## Current phase
 
-The v1 design artifacts are synchronized as the implementation baseline; no Skill or CLI has been created yet. The next vertical slice is the smallest local CLI and user-level Skill that can diagnose one broad topic, begin a useful explanation, save one open session, and resume it from another Codex task or working directory.
+The repository now contains the first MVP vertical slice under
+[`skills/learn-everything`](skills/learn-everything): a user-level Skill plus a
+standard-library Python CLI backed by SQLite. It supports initialization against one
+user-approved data root, relevant-context lookup, one resumable session, revision-safe
+checkpoints, honest closure, and inspectable/correctable/forgettable learning memory.
+
+Run the black-box CLI tests with:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Validate the Skill package with Codex's `skill-creator` validator, then copy the
+`skills/learn-everything` directory to `~/.codex/skills/learn-everything` for local use.
+On the first broad learning session, the Skill asks for a data directory before it runs
+`learn-everything init`; it does not choose a canonical learning-data location on the
+learner's behalf. If authorization is deferred, teaching can continue but is explicitly
+not recoverable yet.
 
 Multi-window coordination, cross-device sync, mastery models, quiz banks, and plugin distribution are outside v1.

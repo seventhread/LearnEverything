@@ -40,7 +40,6 @@
         "condition": "execution_order",
         "strategy": "numbered_code_trace",
         "status": "candidate",
-        "support_count": 1,
         "last_evidence_session_id": "session-callbacks-001",
         "basis_summary": "此前独立会话中，用户明确表示编号执行追踪帮助理解同步调用顺序。",
         "last_observed_at": "2026-08-20T09:18:00Z"

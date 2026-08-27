@@ -94,6 +94,8 @@ On resume, the Skill gives a short reorientation and continues from the last con
 
 If interruption occurs while diagnosis is still awaiting answers, the saved state contains the same structured questions and any selected answers, but no completion items, teaching state, or unconfirmed teaching unit. Resume presents the same unanswered choices instead of generating a new diagnostic set.
 
+If the learner explicitly abandons an unfinished diagnosis, closing clears the open slot without creating topic memory, concept notes, or adaptation evidence for teaching that never happened.
+
 **Failure examples:** a generic “continue learning” checkpoint; replaying the whole lesson; restarting or replacing an unfinished diagnostic; skipping past unconfirmed content; recording an unconfirmed unit as learned; keeping a second resume record that can diverge from the current snapshot.
 
 ## A7. One open learning session is never silently overwritten
@@ -120,7 +122,7 @@ In deterministic integration tests, two starts against an empty slot result in e
 
 Clear conflicting feedback immediately prevents the strategy from being prioritized for the rest of the current session and sets either a `candidate` or `active` signal to `inactive`. A later clear supporting observation may restart it as `candidate`; another independent supporting session is required before it becomes active again. Signals apply only when their topic scope and teaching condition match.
 
-The persisted support count is a bounded lifecycle value: 0 for inactive, 1 for candidate, and 2 for active. It does not grow after activation or preserve old support when the signal restarts.
+`candidate` is only a low-cost experiment under an exact scope-and-condition match; `active` may serve as the default tie-breaker when no current feedback conflicts. The lifecycle stage already encodes whether one or two independent supporting sessions exist, so no duplicate numeric support count is persisted.
 
 **Failure examples:** creating a permanent preference from one weak interaction; counting the same session twice; reinforcing a strategy because the learner did not complain; applying a CS timing-diagram signal to unrelated financial learning; labeling the learner as a fixed “visual learner.”
 

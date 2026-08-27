@@ -26,6 +26,7 @@
   "$defs": {
     "timestamp": {
       "type": "string",
+      "maxLength": 80,
       "format": "date-time"
     },
     "identifier": {
@@ -103,7 +104,6 @@
         "condition",
         "strategy",
         "status",
-        "support_count",
         "last_evidence_session_id",
         "basis_summary",
         "last_observed_at"
@@ -114,7 +114,6 @@
         "condition": { "$ref": "#/$defs/canonicalKey" },
         "strategy": { "$ref": "#/$defs/canonicalKey" },
         "status": { "type": "string", "enum": ["candidate", "active", "inactive"] },
-        "support_count": { "type": "integer", "minimum": 0, "maximum": 2 },
         "last_evidence_session_id": { "$ref": "#/$defs/identifier" },
         "basis_summary": {
           "type": "string",
@@ -123,21 +122,7 @@
           "description": "A compact direct-feedback basis without raw conversation text."
         },
         "last_observed_at": { "$ref": "#/$defs/timestamp" }
-      },
-      "allOf": [
-        {
-          "if": { "properties": { "status": { "const": "candidate" } }, "required": ["status"] },
-          "then": { "properties": { "support_count": { "const": 1 } } }
-        },
-        {
-          "if": { "properties": { "status": { "const": "active" } }, "required": ["status"] },
-          "then": { "properties": { "support_count": { "const": 2 } } }
-        },
-        {
-          "if": { "properties": { "status": { "const": "inactive" } }, "required": ["status"] },
-          "then": { "properties": { "support_count": { "const": 0 } } }
-        }
-      ]
+      }
     },
     "completionItem": {
       "type": "object",
@@ -254,7 +239,7 @@
         "concept_key": { "$ref": "#/$defs/canonicalKey" },
         "starting_state": {
           "type": "string",
-          "enum": ["known", "partial", "unknown", "possible_misconception", "cannot_parse_language"]
+          "enum": ["known", "partial", "unknown", "possible_misconception", "cannot_parse_question"]
         }
       }
     },
@@ -429,7 +414,7 @@
         "suggested_next_step": { "type": "string", "minLength": 1, "maxLength": 1500 },
         "source_links": {
           "type": "array",
-          "items": { "type": "string", "format": "uri" },
+          "items": { "type": "string", "maxLength": 2000, "format": "uri" },
           "uniqueItems": true
         },
         "close_reason": { "type": "string", "enum": ["scope_delivered", "user_stopped"] },

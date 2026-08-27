@@ -1,0 +1,1707 @@
+#!/usr/bin/env python3
+"""Deterministic local state store for the LearnEverything skill.
+
+The CLI deliberately owns persistence, validation, and concurrency only.  Teaching
+decisions remain in the skill.  Every command writes exactly one JSON value to
+stdout so an agent can use it without scraping human-oriented output.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import sys
+import tempfile
+from datetime import datetime, timezone
+from typing import Any, Callable
+import uuid
+
+
+SCHEMA_VERSION = "0.2.0"
+DATABASE_NAME = "learn-everything.sqlite3"
+CONFIG_VERSION = "1"
+IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+CANONICAL_KEY_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+RFC3339_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
+ABSOLUTE_URI_RE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9+.-]*:[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*$"
+)
+
+ERROR_CODES = {
+    "NOT_INITIALIZED",
+    "ALREADY_INITIALIZED",
+    "OPEN_SESSION_EXISTS",
+    "NO_OPEN_SESSION",
+    "INVALID_INPUT",
+    "REVISION_CONFLICT",
+    "STORAGE_UNAVAILABLE",
+}
+
+TARGET_DEPTHS = {"orientation", "explain", "apply", "independent"}
+CONCEPT_STATES = {"known", "partial", "needs_revisit"}
+CONCEPT_BASES = {"user_declared", "diagnostic_observation", "closed_topic"}
+DIAGNOSIS_BASES = {
+    "questions",
+    "prior_context",
+    "user_statement",
+    "refusal_as_unknown",
+    "conservative_fallback",
+    "mixed",
+}
+STARTING_STATES = {
+    "known",
+    "partial",
+    "unknown",
+    "possible_misconception",
+    "cannot_parse_question",
+}
+CONFUSION_KINDS = {
+    "missing_prerequisite",
+    "unfamiliar_term",
+    "skipped_step",
+    "unsuitable_example",
+    "too_abstract",
+    "too_detailed",
+    "other",
+    "unknown",
+}
+RECORD_TYPES = {
+    "explicit_preference",
+    "concept_note",
+    "adaptation_signal",
+    "topic_memory",
+}
+
+
+class CliError(Exception):
+    """Expected command failure represented by the public JSON error contract."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        if code not in ERROR_CODES:
+            raise ValueError(f"unsupported error code: {code}")
+        self.code = code
+        self.message = message
+        self.details = details
+
+
+class JsonArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise CliError("INVALID_INPUT", message, {"field": "arguments"})
+
+
+def now_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def invalid(message: str, field: str) -> None:
+    raise CliError("INVALID_INPUT", message, {"field": field})
+
+
+def has_surrogate(value: str) -> bool:
+    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+
+
+def expect_object(
+    value: Any,
+    field: str,
+    *,
+    required: tuple[str, ...] = (),
+    allowed: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        invalid("Expected a JSON object.", field)
+    if any(has_surrogate(key) for key in value):
+        invalid("Object keys cannot contain isolated Unicode surrogates.", field)
+    missing = [key for key in required if key not in value]
+    if missing:
+        invalid(f"Missing required field(s): {', '.join(missing)}.", field)
+    if allowed is not None:
+        extras = sorted(set(value) - set(allowed))
+        if extras:
+            invalid(f"Unexpected field(s): {', '.join(extras)}.", field)
+    return value
+
+
+def expect_list(
+    value: Any,
+    field: str,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> list[Any]:
+    if not isinstance(value, list):
+        invalid("Expected a JSON array.", field)
+    if minimum is not None and len(value) < minimum:
+        invalid(f"Expected at least {minimum} item(s).", field)
+    if maximum is not None and len(value) > maximum:
+        invalid(f"Expected at most {maximum} item(s).", field)
+    return value
+
+
+def expect_string(
+    value: Any,
+    field: str,
+    *,
+    minimum: int = 1,
+    maximum: int,
+) -> str:
+    if not isinstance(value, str) or len(value) < minimum or len(value) > maximum:
+        invalid(f"Expected a string of {minimum}–{maximum} characters.", field)
+    if has_surrogate(value):
+        invalid("Strings cannot contain isolated Unicode surrogates.", field)
+    return value
+
+
+def expect_enum(value: Any, choices: set[str], field: str) -> str:
+    if not isinstance(value, str) or value not in choices:
+        invalid(f"Expected one of: {', '.join(sorted(choices))}.", field)
+    return value
+
+
+def expect_identifier(value: Any, field: str) -> str:
+    text = expect_string(value, field, maximum=200)
+    if not IDENTIFIER_RE.fullmatch(text):
+        invalid("Expected a portable identifier.", field)
+    return text
+
+
+def expect_canonical_key(value: Any, field: str) -> str:
+    text = expect_string(value, field, maximum=200)
+    if not CANONICAL_KEY_RE.fullmatch(text):
+        invalid("Expected a lowercase canonical key.", field)
+    return text
+
+
+def expect_timestamp(value: Any, field: str) -> str:
+    text = expect_string(value, field, maximum=80)
+    if not RFC3339_RE.fullmatch(text):
+        invalid("Expected an RFC 3339 date-time.", field)
+    try:
+        normalized = text[:-1] + "+00:00" if text[-1] in "Zz" else text
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        invalid("Expected an RFC 3339 date-time.", field)
+    if parsed.tzinfo is None:
+        invalid("Expected a date-time with an explicit timezone.", field)
+    return text
+
+
+def expect_unique_strings(
+    value: Any,
+    field: str,
+    *,
+    maximum_items: int | None = None,
+    maximum_length: int = 200,
+) -> list[str]:
+    values = expect_list(value, field, maximum=maximum_items)
+    output: list[str] = []
+    for index, item in enumerate(values):
+        output.append(
+            expect_string(item, f"{field}[{index}]", maximum=maximum_length)
+        )
+    if len(output) != len(set(output)):
+        invalid("Values must be unique.", field)
+    return output
+
+
+def assert_unique(values: list[str], field: str) -> None:
+    if len(values) != len(set(values)):
+        invalid("Identifiers must be unique within this array.", field)
+
+
+def validate_completion_item(value: Any, field: str) -> dict[str, Any]:
+    item = expect_object(
+        value,
+        field,
+        required=("item_id", "description", "status"),
+        allowed=("item_id", "description", "status"),
+    )
+    expect_identifier(item["item_id"], f"{field}.item_id")
+    expect_string(item["description"], f"{field}.description", maximum=1000)
+    expect_enum(item["status"], {"pending", "covered"}, f"{field}.status")
+    return item
+
+
+def validate_goal(
+    value: Any, field: str, *, complete_required: bool
+) -> dict[str, Any]:
+    required = ("purpose", "target_depth", "completion_items") if complete_required else ()
+    goal = expect_object(
+        value,
+        field,
+        required=required,
+        allowed=("purpose", "target_depth", "completion_items"),
+    )
+    if "purpose" in goal:
+        expect_string(goal["purpose"], f"{field}.purpose", maximum=1000)
+    if "target_depth" in goal:
+        expect_enum(goal["target_depth"], TARGET_DEPTHS, f"{field}.target_depth")
+    if "completion_items" in goal:
+        if not complete_required:
+            invalid(
+                "Completion items are created only after diagnosis is complete.",
+                f"{field}.completion_items",
+            )
+        items = expect_list(
+            goal["completion_items"],
+            f"{field}.completion_items",
+            minimum=1,
+            maximum=5,
+        )
+        for index, item in enumerate(items):
+            validate_completion_item(item, f"{field}.completion_items[{index}]")
+        assert_unique(
+            [item["item_id"] for item in items], f"{field}.completion_items"
+        )
+    return goal
+
+
+def validate_diagnostic_question(value: Any, field: str) -> dict[str, Any]:
+    question = expect_object(
+        value,
+        field,
+        required=("question_id", "prompt", "options"),
+        allowed=("question_id", "prompt", "options", "selected_option_id"),
+    )
+    expect_identifier(question["question_id"], f"{field}.question_id")
+    expect_string(question["prompt"], f"{field}.prompt", maximum=1000)
+    options = expect_list(
+        question["options"], f"{field}.options", minimum=2, maximum=8
+    )
+    option_ids: list[str] = []
+    option_kinds: list[str] = []
+    for index, raw_option in enumerate(options):
+        option_field = f"{field}.options[{index}]"
+        option = expect_object(
+            raw_option,
+            option_field,
+            required=("option_id", "label", "kind"),
+            allowed=("option_id", "label", "kind"),
+        )
+        option_ids.append(expect_identifier(option["option_id"], f"{option_field}.option_id"))
+        expect_string(option["label"], f"{option_field}.label", maximum=500)
+        option_kinds.append(
+            expect_enum(
+                option["kind"],
+                {"answer", "unknown_or_guessing", "cannot_parse_options"},
+                f"{option_field}.kind",
+            )
+        )
+    assert_unique(option_ids, f"{field}.options")
+    if "unknown_or_guessing" not in option_kinds:
+        invalid(
+            "Every diagnostic question needs an unknown-or-guessing option.",
+            f"{field}.options",
+        )
+    if "selected_option_id" in question:
+        selected = expect_identifier(
+            question["selected_option_id"], f"{field}.selected_option_id"
+        )
+        if selected not in option_ids:
+            invalid(
+                "Selected option must reference an option in the same question.",
+                f"{field}.selected_option_id",
+            )
+    return question
+
+
+def validate_diagnosis(value: Any, field: str) -> dict[str, Any]:
+    diagnosis = expect_object(value, field)
+    phase = diagnosis.get("phase")
+    if phase == "awaiting_answers":
+        expect_object(
+            diagnosis,
+            field,
+            required=("phase", "questions"),
+            allowed=("phase", "questions"),
+        )
+        questions = expect_list(
+            diagnosis["questions"], f"{field}.questions", minimum=1, maximum=5
+        )
+        for index, question in enumerate(questions):
+            validate_diagnostic_question(question, f"{field}.questions[{index}]")
+        assert_unique(
+            [question["question_id"] for question in questions],
+            f"{field}.questions",
+        )
+        return diagnosis
+    if phase == "complete":
+        expect_object(
+            diagnosis,
+            field,
+            required=("phase", "basis", "starting_point", "summary"),
+            allowed=("phase", "basis", "starting_point", "summary"),
+        )
+        expect_enum(diagnosis["basis"], DIAGNOSIS_BASES, f"{field}.basis")
+        expect_string(
+            diagnosis["starting_point"], f"{field}.starting_point", maximum=1000
+        )
+        findings = expect_list(diagnosis["summary"], f"{field}.summary", maximum=5)
+        keys: list[str] = []
+        for index, raw_finding in enumerate(findings):
+            finding_field = f"{field}.summary[{index}]"
+            finding = expect_object(
+                raw_finding,
+                finding_field,
+                required=("concept_key", "starting_state"),
+                allowed=("concept_key", "starting_state"),
+            )
+            keys.append(
+                expect_canonical_key(
+                    finding["concept_key"], f"{finding_field}.concept_key"
+                )
+            )
+            expect_enum(
+                finding["starting_state"],
+                STARTING_STATES,
+                f"{finding_field}.starting_state",
+            )
+        assert_unique(keys, f"{field}.summary")
+        return diagnosis
+    invalid("Diagnosis phase must be awaiting_answers or complete.", f"{field}.phase")
+
+
+def validate_confusion(value: Any, field: str) -> dict[str, Any]:
+    confusion = expect_object(
+        value,
+        field,
+        required=("description", "kind"),
+        allowed=("description", "kind"),
+    )
+    expect_string(confusion["description"], f"{field}.description", maximum=1500)
+    expect_enum(confusion["kind"], CONFUSION_KINDS, f"{field}.kind")
+    return confusion
+
+
+def validate_teaching_note(value: Any, field: str) -> dict[str, Any]:
+    note = expect_object(
+        value,
+        field,
+        required=("scope", "condition", "strategy", "outcome", "summary", "observed_at"),
+        allowed=("scope", "condition", "strategy", "outcome", "summary", "observed_at"),
+    )
+    expect_canonical_key(note["scope"], f"{field}.scope")
+    expect_canonical_key(note["condition"], f"{field}.condition")
+    expect_canonical_key(note["strategy"], f"{field}.strategy")
+    expect_enum(note["outcome"], {"helped", "hindered"}, f"{field}.outcome")
+    expect_string(note["summary"], f"{field}.summary", maximum=500)
+    expect_timestamp(note["observed_at"], f"{field}.observed_at")
+    return note
+
+
+def validate_teaching_state(value: Any, field: str) -> dict[str, Any]:
+    teaching = expect_object(
+        value,
+        field,
+        required=(
+            "confirmed_summary",
+            "unresolved_confusions",
+            "local_teaching_notes",
+            "current_focus",
+            "next_move",
+        ),
+        allowed=(
+            "confirmed_summary",
+            "unresolved_confusions",
+            "local_teaching_notes",
+            "current_focus",
+            "next_move",
+        ),
+    )
+    if teaching["confirmed_summary"] is not None:
+        expect_string(
+            teaching["confirmed_summary"],
+            f"{field}.confirmed_summary",
+            maximum=4000,
+        )
+    confusions = expect_list(
+        teaching["unresolved_confusions"], f"{field}.unresolved_confusions"
+    )
+    for index, confusion in enumerate(confusions):
+        validate_confusion(confusion, f"{field}.unresolved_confusions[{index}]")
+    notes = expect_list(
+        teaching["local_teaching_notes"],
+        f"{field}.local_teaching_notes",
+        maximum=3,
+    )
+    for index, note in enumerate(notes):
+        validate_teaching_note(note, f"{field}.local_teaching_notes[{index}]")
+    expect_string(teaching["current_focus"], f"{field}.current_focus", maximum=1000)
+    expect_string(teaching["next_move"], f"{field}.next_move", maximum=2000)
+    return teaching
+
+
+def validate_unconfirmed_unit(
+    value: Any, field: str, completion_ids: set[str]
+) -> dict[str, Any]:
+    unit = expect_object(
+        value,
+        field,
+        required=("summary", "may_cover"),
+        allowed=("summary", "may_cover"),
+    )
+    expect_string(unit["summary"], f"{field}.summary", maximum=2000)
+    raw_ids = expect_list(unit["may_cover"], f"{field}.may_cover", maximum=5)
+    item_ids = [
+        expect_identifier(raw, f"{field}.may_cover[{index}]")
+        for index, raw in enumerate(raw_ids)
+    ]
+    assert_unique(item_ids, f"{field}.may_cover")
+    unknown = sorted(set(item_ids) - completion_ids)
+    if unknown:
+        invalid(
+            f"Unknown completion item reference(s): {', '.join(unknown)}.",
+            f"{field}.may_cover",
+        )
+    return unit
+
+
+def validate_open_session(value: Any, field: str = "open_session") -> dict[str, Any]:
+    session = expect_object(
+        value,
+        field,
+        required=(
+            "session_id",
+            "topic_id",
+            "topic_title",
+            "status",
+            "revision",
+            "goal",
+            "diagnosis",
+            "created_at",
+            "updated_at",
+        ),
+        allowed=(
+            "session_id",
+            "topic_id",
+            "topic_title",
+            "status",
+            "revision",
+            "goal",
+            "diagnosis",
+            "teaching_state",
+            "unconfirmed_unit",
+            "created_at",
+            "updated_at",
+        ),
+    )
+    expect_identifier(session["session_id"], f"{field}.session_id")
+    expect_identifier(session["topic_id"], f"{field}.topic_id")
+    expect_string(session["topic_title"], f"{field}.topic_title", maximum=500)
+    expect_enum(session["status"], {"active", "paused"}, f"{field}.status")
+    revision = session["revision"]
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        invalid("Revision must be an integer of at least 1.", f"{field}.revision")
+    diagnosis = validate_diagnosis(session["diagnosis"], f"{field}.diagnosis")
+    complete = diagnosis["phase"] == "complete"
+    goal = validate_goal(session["goal"], f"{field}.goal", complete_required=complete)
+    if complete:
+        if "teaching_state" not in session:
+            invalid(
+                "A completed diagnosis requires teaching_state.",
+                f"{field}.teaching_state",
+            )
+        validate_teaching_state(session["teaching_state"], f"{field}.teaching_state")
+        if "unconfirmed_unit" in session:
+            completion_ids = {
+                item["item_id"] for item in goal["completion_items"]
+            }
+            validate_unconfirmed_unit(
+                session["unconfirmed_unit"],
+                f"{field}.unconfirmed_unit",
+                completion_ids,
+            )
+    elif "teaching_state" in session or "unconfirmed_unit" in session:
+        invalid(
+            "An unfinished diagnosis cannot have teaching state or an unconfirmed unit.",
+            field,
+        )
+    expect_timestamp(session["created_at"], f"{field}.created_at")
+    expect_timestamp(session["updated_at"], f"{field}.updated_at")
+    return session
+
+
+def validate_explicit_preference(value: Any, field: str) -> dict[str, Any]:
+    record = expect_object(
+        value,
+        field,
+        required=("preference_id", "scope", "instruction", "updated_at"),
+        allowed=("preference_id", "scope", "instruction", "updated_at"),
+    )
+    expect_identifier(record["preference_id"], f"{field}.preference_id")
+    expect_string(record["scope"], f"{field}.scope", maximum=200)
+    expect_string(record["instruction"], f"{field}.instruction", maximum=500)
+    expect_timestamp(record["updated_at"], f"{field}.updated_at")
+    return record
+
+
+def validate_concept_note(value: Any, field: str) -> dict[str, Any]:
+    record = expect_object(
+        value,
+        field,
+        required=("concept_key", "summary", "state", "basis", "last_observed_at"),
+        allowed=("concept_key", "aliases", "summary", "state", "basis", "last_observed_at"),
+    )
+    expect_canonical_key(record["concept_key"], f"{field}.concept_key")
+    if "aliases" in record:
+        expect_unique_strings(record["aliases"], f"{field}.aliases")
+    expect_string(record["summary"], f"{field}.summary", maximum=1000)
+    expect_enum(record["state"], CONCEPT_STATES, f"{field}.state")
+    expect_enum(record["basis"], CONCEPT_BASES, f"{field}.basis")
+    expect_timestamp(record["last_observed_at"], f"{field}.last_observed_at")
+    return record
+
+
+def validate_adaptation_signal(value: Any, field: str) -> dict[str, Any]:
+    record = expect_object(
+        value,
+        field,
+        required=(
+            "signal_id",
+            "scope",
+            "condition",
+            "strategy",
+            "status",
+            "last_evidence_session_id",
+            "basis_summary",
+            "last_observed_at",
+        ),
+        allowed=(
+            "signal_id",
+            "scope",
+            "condition",
+            "strategy",
+            "status",
+            "last_evidence_session_id",
+            "basis_summary",
+            "last_observed_at",
+        ),
+    )
+    expect_identifier(record["signal_id"], f"{field}.signal_id")
+    expect_canonical_key(record["scope"], f"{field}.scope")
+    expect_canonical_key(record["condition"], f"{field}.condition")
+    expect_canonical_key(record["strategy"], f"{field}.strategy")
+    expect_enum(
+        record["status"], {"candidate", "active", "inactive"}, f"{field}.status"
+    )
+    expect_identifier(
+        record["last_evidence_session_id"], f"{field}.last_evidence_session_id"
+    )
+    expect_string(record["basis_summary"], f"{field}.basis_summary", maximum=500)
+    expect_timestamp(record["last_observed_at"], f"{field}.last_observed_at")
+    return record
+
+
+def validate_topic_memory(value: Any, field: str) -> dict[str, Any]:
+    record = expect_object(
+        value,
+        field,
+        required=(
+            "topic_id",
+            "title",
+            "goal",
+            "summary",
+            "unresolved_questions",
+            "close_reason",
+            "closed_at",
+        ),
+        allowed=(
+            "topic_id",
+            "title",
+            "aliases",
+            "goal",
+            "summary",
+            "unresolved_questions",
+            "suggested_next_step",
+            "source_links",
+            "close_reason",
+            "closed_at",
+        ),
+    )
+    expect_identifier(record["topic_id"], f"{field}.topic_id")
+    expect_string(record["title"], f"{field}.title", maximum=500)
+    if "aliases" in record:
+        expect_unique_strings(record["aliases"], f"{field}.aliases")
+    goal = validate_goal(record["goal"], f"{field}.goal", complete_required=True)
+    expect_string(record["summary"], f"{field}.summary", maximum=4000)
+    expect_unique_strings(
+        record["unresolved_questions"],
+        f"{field}.unresolved_questions",
+        maximum_length=1000,
+    )
+    if "suggested_next_step" in record:
+        expect_string(
+            record["suggested_next_step"],
+            f"{field}.suggested_next_step",
+            maximum=1500,
+        )
+    if "source_links" in record:
+        links = expect_unique_strings(
+            record["source_links"], f"{field}.source_links", maximum_length=2000
+        )
+        for index, link in enumerate(links):
+            if (
+                not link.isascii()
+                or not ABSOLUTE_URI_RE.fullmatch(link)
+                or re.search(r"%(?![0-9A-Fa-f]{2})", link)
+            ):
+                invalid("Expected an absolute URI.", f"{field}.source_links[{index}]")
+    reason = expect_enum(
+        record["close_reason"],
+        {"scope_delivered", "user_stopped"},
+        f"{field}.close_reason",
+    )
+    statuses = [item["status"] for item in goal["completion_items"]]
+    if reason == "scope_delivered" and any(status != "covered" for status in statuses):
+        invalid(
+            "scope_delivered requires every completion item to be covered.",
+            f"{field}.goal.completion_items",
+        )
+    if reason == "user_stopped":
+        if "pending" not in statuses:
+            invalid(
+                "user_stopped requires at least one pending completion item.",
+                f"{field}.goal.completion_items",
+            )
+        if "suggested_next_step" not in record:
+            invalid(
+                "user_stopped requires a useful suggested_next_step.",
+                f"{field}.suggested_next_step",
+            )
+    expect_timestamp(record["closed_at"], f"{field}.closed_at")
+    return record
+
+
+def validate_state(value: Any) -> dict[str, Any]:
+    state = expect_object(
+        value,
+        "state",
+        required=(
+            "schema_version",
+            "learner",
+            "topic_memories",
+            "open_session",
+            "updated_at",
+        ),
+        allowed=(
+            "schema_version",
+            "learner",
+            "topic_memories",
+            "open_session",
+            "updated_at",
+        ),
+    )
+    if state["schema_version"] != SCHEMA_VERSION:
+        invalid(
+            f"Unsupported state schema version; expected {SCHEMA_VERSION}.",
+            "state.schema_version",
+        )
+    learner = expect_object(
+        state["learner"],
+        "state.learner",
+        required=("explicit_preferences", "concept_notes", "adaptation_signals"),
+        allowed=("explicit_preferences", "concept_notes", "adaptation_signals"),
+    )
+    validators: tuple[tuple[str, Callable[[Any, str], dict[str, Any]], str], ...] = (
+        ("explicit_preferences", validate_explicit_preference, "preference_id"),
+        ("concept_notes", validate_concept_note, "concept_key"),
+        ("adaptation_signals", validate_adaptation_signal, "signal_id"),
+    )
+    for list_name, validator, id_field in validators:
+        records = expect_list(learner[list_name], f"state.learner.{list_name}")
+        for index, record in enumerate(records):
+            validator(record, f"state.learner.{list_name}[{index}]")
+        assert_unique(
+            [record[id_field] for record in records], f"state.learner.{list_name}"
+        )
+    signals = learner["adaptation_signals"]
+    signal_keys = [
+        (record["scope"], record["condition"], record["strategy"])
+        for record in signals
+    ]
+    if len(signal_keys) != len(set(signal_keys)):
+        invalid(
+            "Adaptation signal scope/condition/strategy tuples must be unique.",
+            "state.learner.adaptation_signals",
+        )
+    memories = expect_list(state["topic_memories"], "state.topic_memories")
+    for index, memory in enumerate(memories):
+        validate_topic_memory(memory, f"state.topic_memories[{index}]")
+    assert_unique([memory["topic_id"] for memory in memories], "state.topic_memories")
+    if state["open_session"] is not None:
+        validate_open_session(state["open_session"])
+    expect_timestamp(state["updated_at"], "state.updated_at")
+    return state
+
+
+def config_path() -> Path:
+    override = os.environ.get("LEARN_EVERYTHING_CONFIG")
+    if override:
+        return Path(override).expanduser().resolve(strict=False)
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base).expanduser().resolve(strict=False) / "learn-everything" / "config.json"
+    return Path.home() / ".config" / "learn-everything" / "config.json"
+
+
+def normalize_root(raw: str) -> Path:
+    if not isinstance(raw, str) or not raw.strip():
+        invalid("--data-root must be a non-empty path.", "arguments.data_root")
+    if has_surrogate(raw):
+        invalid(
+            "--data-root cannot contain isolated Unicode surrogates.",
+            "arguments.data_root",
+        )
+    return Path(raw).expanduser().resolve(strict=False)
+
+
+def read_config(*, required: bool) -> tuple[Path, dict[str, Any]] | None:
+    path = config_path()
+    if not path.exists():
+        if required:
+            raise CliError(
+                "NOT_INITIALIZED",
+                "LearnEverything persistence has not been initialized.",
+                {"config_path": str(path)},
+            )
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8")
+        config = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The LearnEverything configuration cannot be read.",
+            {"config_path": str(path), "reason": str(exc)},
+        ) from exc
+    if (
+        not isinstance(config, dict)
+        or config.get("config_version") != CONFIG_VERSION
+        or not isinstance(config.get("data_root"), str)
+        or not config["data_root"]
+        or has_surrogate(config["data_root"])
+    ):
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The LearnEverything configuration is invalid.",
+            {"config_path": str(path)},
+        )
+    return path, config
+
+
+def empty_state() -> dict[str, Any]:
+    timestamp = now_timestamp()
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "learner": {
+            "explicit_preferences": [],
+            "concept_notes": [],
+            "adaptation_signals": [],
+        },
+        "topic_memories": [],
+        "open_session": None,
+        "updated_at": timestamp,
+    }
+
+
+def configure_connection(connection: sqlite3.Connection, *, initialize: bool) -> None:
+    connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute("PRAGMA foreign_keys = ON")
+    if initialize:
+        connection.execute("PRAGMA journal_mode = WAL")
+
+
+def initialize_database(path: Path) -> None:
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(path, timeout=5.0, isolation_level=None)
+        configure_connection(connection, initialize=True)
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS learning_state ("
+            "id INTEGER PRIMARY KEY CHECK (id = 1), "
+            "payload_json TEXT NOT NULL)"
+        )
+        row = connection.execute(
+            "SELECT payload_json FROM learning_state WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            payload = json.dumps(empty_state(), ensure_ascii=False, separators=(",", ":"))
+            connection.execute(
+                "INSERT INTO learning_state(id, payload_json) VALUES (1, ?)", (payload,)
+            )
+        else:
+            try:
+                existing = json.loads(row[0])
+                validate_state(existing)
+            except (json.JSONDecodeError, CliError) as exc:
+                raise CliError(
+                    "STORAGE_UNAVAILABLE",
+                    "The existing LearnEverything database contains invalid state.",
+                    {"database_path": str(path)},
+                ) from exc
+    except CliError:
+        raise
+    except (OSError, sqlite3.Error) as exc:
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The LearnEverything database cannot be initialized.",
+            {"database_path": str(path), "reason": str(exc)},
+        ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def write_config(path: Path, data_root: Path) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {"config_version": CONFIG_VERSION, "data_root": str(data_root)},
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n"
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".config-", suffix=".tmp", dir=path.parent
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    except OSError as exc:
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The LearnEverything configuration cannot be written.",
+            {"config_path": str(path), "reason": str(exc)},
+        ) from exc
+
+
+def command_init(data_root_raw: str) -> dict[str, Any]:
+    requested = normalize_root(data_root_raw)
+    configured = read_config(required=False)
+    if configured is not None:
+        _, existing_config = configured
+        existing = Path(existing_config["data_root"]).expanduser().resolve(strict=False)
+        if existing != requested:
+            raise CliError(
+                "ALREADY_INITIALIZED",
+                "LearnEverything is already initialized with another data root.",
+                {
+                    "configured_data_root": str(existing),
+                    "requested_data_root": str(requested),
+                },
+            )
+        database = existing / DATABASE_NAME
+        if not existing.is_dir() or not database.is_file():
+            raise CliError(
+                "STORAGE_UNAVAILABLE",
+                "The configured LearnEverything data root is unavailable.",
+                {"data_root": str(existing)},
+            )
+        # Verify rather than silently replacing an unavailable or damaged store.
+        connection = open_database()
+        try:
+            load_state(connection)
+        finally:
+            connection.close()
+        return {
+            "initialized": True,
+            "reused": True,
+            "data_root": str(existing),
+            "database_path": str(database),
+        }
+    try:
+        requested.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The requested LearnEverything data root cannot be created.",
+            {"data_root": str(requested), "reason": str(exc)},
+        ) from exc
+    if not requested.is_dir():
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The requested LearnEverything data root is not a directory.",
+            {"data_root": str(requested)},
+        )
+    database = requested / DATABASE_NAME
+    initialize_database(database)
+    write_config(config_path(), requested)
+    return {
+        "initialized": True,
+        "reused": False,
+        "data_root": str(requested),
+        "database_path": str(database),
+    }
+
+
+def open_database() -> sqlite3.Connection:
+    configured = read_config(required=True)
+    assert configured is not None
+    _, config = configured
+    root = Path(config["data_root"]).expanduser().resolve(strict=False)
+    database = root / DATABASE_NAME
+    if not root.is_dir() or not database.is_file():
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The configured LearnEverything data root is unavailable.",
+            {"data_root": str(root), "database_path": str(database)},
+        )
+    try:
+        connection = sqlite3.connect(
+            database.as_uri() + "?mode=rw", uri=True, timeout=5.0, isolation_level=None
+        )
+        configure_connection(connection, initialize=False)
+        return connection
+    except (OSError, sqlite3.Error) as exc:
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The LearnEverything database cannot be opened.",
+            {"database_path": str(database), "reason": str(exc)},
+        ) from exc
+
+
+def load_state(connection: sqlite3.Connection) -> dict[str, Any]:
+    try:
+        row = connection.execute(
+            "SELECT payload_json FROM learning_state WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            raise ValueError("canonical state row is missing")
+        state = json.loads(row[0])
+        try:
+            validate_state(state)
+        except CliError as exc:
+            raise ValueError(exc.message) from exc
+        return state
+    except (sqlite3.Error, json.JSONDecodeError, ValueError) as exc:
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The canonical LearnEverything state cannot be read.",
+            {"reason": str(exc)},
+        ) from exc
+
+
+def read_state() -> dict[str, Any]:
+    connection = open_database()
+    try:
+        return load_state(connection)
+    finally:
+        connection.close()
+
+
+def mutate_state(
+    operation: Callable[[dict[str, Any]], dict[str, Any]]
+) -> dict[str, Any]:
+    connection = open_database()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        state = load_state(connection)
+        result = operation(state)
+        state["updated_at"] = now_timestamp()
+        validate_state(state)
+        payload = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+        connection.execute(
+            "UPDATE learning_state SET payload_json = ? WHERE id = 1", (payload,)
+        )
+        connection.execute("COMMIT")
+        return result
+    except CliError:
+        if connection.in_transaction:
+            connection.execute("ROLLBACK")
+        raise
+    except (OSError, sqlite3.Error) as exc:
+        if connection.in_transaction:
+            try:
+                connection.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        raise CliError(
+            "STORAGE_UNAVAILABLE",
+            "The LearnEverything state could not be saved.",
+            {"reason": str(exc)},
+        ) from exc
+    finally:
+        connection.close()
+
+
+def read_json_input(source: str | None, *, required: bool) -> dict[str, Any]:
+    if source is None:
+        if required:
+            invalid("This command requires --input -.", "arguments.input")
+        return {}
+    if source != "-":
+        invalid(
+            "The v1 CLI accepts structured input only from stdin via --input -.",
+            "arguments.input",
+        )
+    try:
+        raw = sys.stdin.read()
+    except (OSError, UnicodeError) as exc:
+        invalid(f"Could not read JSON input: {exc}", "arguments.input")
+    if not raw.strip():
+        if required:
+            invalid("JSON input is empty.", "input")
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        invalid(f"Invalid JSON: {exc.msg} at line {exc.lineno}, column {exc.colno}.", "input")
+    return expect_object(value, "input")
+
+
+def command_session_get() -> dict[str, Any]:
+    return {"open_session": read_state()["open_session"]}
+
+
+def command_session_start(payload: dict[str, Any]) -> dict[str, Any]:
+    request = expect_object(
+        payload,
+        "input",
+        required=("topic_id", "topic_title", "goal", "diagnosis"),
+        allowed=(
+            "session_id",
+            "topic_id",
+            "topic_title",
+            "status",
+            "goal",
+            "diagnosis",
+            "teaching_state",
+            "unconfirmed_unit",
+        ),
+    )
+    timestamp = now_timestamp()
+    session: dict[str, Any] = {
+        "session_id": request.get("session_id", "ses-" + uuid.uuid4().hex),
+        "topic_id": request["topic_id"],
+        "topic_title": request["topic_title"],
+        "status": request.get("status", "active"),
+        "revision": 1,
+        "goal": copy.deepcopy(request["goal"]),
+        "diagnosis": copy.deepcopy(request["diagnosis"]),
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+    if "teaching_state" in request:
+        session["teaching_state"] = copy.deepcopy(request["teaching_state"])
+    if "unconfirmed_unit" in request:
+        session["unconfirmed_unit"] = copy.deepcopy(request["unconfirmed_unit"])
+    validate_open_session(session, "input")
+
+    def start(state: dict[str, Any]) -> dict[str, Any]:
+        if state["open_session"] is not None:
+            existing = state["open_session"]
+            raise CliError(
+                "OPEN_SESSION_EXISTS",
+                "A learning session is already open and cannot be overwritten.",
+                {
+                    "session_id": existing["session_id"],
+                    "topic_id": existing["topic_id"],
+                    "topic_title": existing["topic_title"],
+                },
+            )
+        state["open_session"] = session
+        return {"session": copy.deepcopy(session)}
+
+    return mutate_state(start)
+
+
+def check_session_revision(
+    state: dict[str, Any], session_id: str, expected_revision: int
+) -> dict[str, Any]:
+    session = state["open_session"]
+    if session is None:
+        raise CliError("NO_OPEN_SESSION", "There is no open learning session.")
+    if session["session_id"] != session_id:
+        raise CliError(
+            "REVISION_CONFLICT",
+            "The write targets a different open session.",
+            {
+                "expected_session_id": session_id,
+                "actual_session_id": session["session_id"],
+                "actual_revision": session["revision"],
+            },
+        )
+    if session["revision"] != expected_revision:
+        raise CliError(
+            "REVISION_CONFLICT",
+            "The open session has changed since it was read.",
+            {
+                "session_id": session_id,
+                "expected_revision": expected_revision,
+                "actual_revision": session["revision"],
+            },
+        )
+    return session
+
+
+def command_session_checkpoint(
+    payload: dict[str, Any], expected_revision: int
+) -> dict[str, Any]:
+    request = expect_object(
+        payload,
+        "input",
+        required=("session_id", "status", "goal", "diagnosis"),
+        allowed=(
+            "session_id",
+            "status",
+            "goal",
+            "diagnosis",
+            "teaching_state",
+            "unconfirmed_unit",
+        ),
+    )
+    session_id = expect_identifier(request["session_id"], "input.session_id")
+    if not isinstance(expected_revision, int) or expected_revision < 1:
+        invalid(
+            "Expected revision must be an integer of at least 1.",
+            "arguments.expected_revision",
+        )
+    requested_diagnosis = request["diagnosis"]
+    if (
+        isinstance(requested_diagnosis, dict)
+        and requested_diagnosis.get("phase") == "awaiting_answers"
+    ):
+        if "teaching_state" in request:
+            invalid(
+                "An unfinished diagnosis cannot have teaching state.",
+                "input.teaching_state",
+            )
+        if "unconfirmed_unit" in request:
+            invalid(
+                "An unfinished diagnosis cannot have an unconfirmed unit.",
+                "input.unconfirmed_unit",
+            )
+
+    def checkpoint(state: dict[str, Any]) -> dict[str, Any]:
+        old = check_session_revision(state, session_id, expected_revision)
+        old_phase = old["diagnosis"]["phase"]
+        new_diagnosis = copy.deepcopy(request["diagnosis"])
+        if (
+            old_phase == "complete"
+            and isinstance(new_diagnosis, dict)
+            and new_diagnosis.get("phase") == "awaiting_answers"
+        ):
+            invalid(
+                "A completed diagnosis cannot return to awaiting_answers.",
+                "input.diagnosis.phase",
+            )
+        updated: dict[str, Any] = {
+            "session_id": old["session_id"],
+            "topic_id": old["topic_id"],
+            "topic_title": old["topic_title"],
+            "status": request["status"],
+            "revision": old["revision"] + 1,
+            "goal": copy.deepcopy(request["goal"]),
+            "diagnosis": new_diagnosis,
+            "created_at": old["created_at"],
+            "updated_at": now_timestamp(),
+        }
+        new_phase = new_diagnosis.get("phase") if isinstance(new_diagnosis, dict) else None
+        if new_phase == "complete":
+            if "teaching_state" in request:
+                updated["teaching_state"] = copy.deepcopy(request["teaching_state"])
+            elif "teaching_state" in old:
+                updated["teaching_state"] = copy.deepcopy(old["teaching_state"])
+            if "unconfirmed_unit" in request:
+                if request["unconfirmed_unit"] is not None:
+                    updated["unconfirmed_unit"] = copy.deepcopy(request["unconfirmed_unit"])
+            elif "unconfirmed_unit" in old:
+                updated["unconfirmed_unit"] = copy.deepcopy(old["unconfirmed_unit"])
+        validate_open_session(updated, "input")
+        state["open_session"] = updated
+        return {"session": copy.deepcopy(updated)}
+
+    return mutate_state(checkpoint)
+
+
+def deterministic_signal_id(scope: str, condition: str, strategy: str) -> str:
+    digest = hashlib.sha256(
+        (scope + "\0" + condition + "\0" + strategy).encode("utf-8")
+    ).hexdigest()[:24]
+    return "as-" + digest
+
+
+def merge_adaptation_observations(
+    signals: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    session_id: str,
+) -> list[dict[str, Any]]:
+    by_key = {
+        (signal["scope"], signal["condition"], signal["strategy"]): signal
+        for signal in signals
+    }
+    for observation in observations:
+        key = (
+            observation["scope"],
+            observation["condition"],
+            observation["strategy"],
+        )
+        existing = by_key.get(key)
+        outcome = observation["outcome"]
+        if outcome == "hindered":
+            status = "inactive"
+        elif existing is None or existing["status"] == "inactive":
+            status = "candidate"
+        elif existing["status"] == "candidate":
+            if existing["last_evidence_session_id"] != session_id:
+                status = "active"
+            else:
+                status = "candidate"
+        else:
+            status = "active"
+        replacement = {
+            "signal_id": (
+                existing["signal_id"]
+                if existing is not None
+                else deterministic_signal_id(*key)
+            ),
+            "scope": key[0],
+            "condition": key[1],
+            "strategy": key[2],
+            "status": status,
+            "last_evidence_session_id": session_id,
+            "basis_summary": observation["summary"],
+            "last_observed_at": observation["observed_at"],
+        }
+        if existing is None:
+            signals.append(replacement)
+        else:
+            signals[signals.index(existing)] = replacement
+        by_key[key] = replacement
+    return signals
+
+
+def command_session_close(
+    payload: dict[str, Any], expected_revision: int
+) -> dict[str, Any]:
+    request = expect_object(
+        payload,
+        "input",
+        required=("session_id",),
+        allowed=("session_id", "topic_memory", "concept_notes", "adaptation_observations"),
+    )
+    session_id = expect_identifier(request["session_id"], "input.session_id")
+    if not isinstance(expected_revision, int) or expected_revision < 1:
+        invalid(
+            "Expected revision must be an integer of at least 1.",
+            "arguments.expected_revision",
+        )
+    discard_awaiting = "topic_memory" not in request
+    if discard_awaiting and set(request) != {"session_id"}:
+        invalid(
+            "Closing an unfinished diagnosis accepts only session_id.",
+            "input",
+        )
+    memory_input = None
+    if not discard_awaiting:
+        memory_input = expect_object(
+            request["topic_memory"],
+            "input.topic_memory",
+            required=("summary", "unresolved_questions", "close_reason"),
+            allowed=(
+                "title",
+                "aliases",
+                "goal",
+                "summary",
+                "unresolved_questions",
+                "suggested_next_step",
+                "source_links",
+                "close_reason",
+            ),
+        )
+    concept_notes = expect_list(request.get("concept_notes", []), "input.concept_notes")
+    for index, note in enumerate(concept_notes):
+        validate_concept_note(note, f"input.concept_notes[{index}]")
+    assert_unique([note["concept_key"] for note in concept_notes], "input.concept_notes")
+    observations = expect_list(
+        request.get("adaptation_observations", []),
+        "input.adaptation_observations",
+        maximum=3,
+    )
+    for index, observation in enumerate(observations):
+        validate_teaching_note(observation, f"input.adaptation_observations[{index}]")
+    observation_keys = [
+        (item["scope"], item["condition"], item["strategy"])
+        for item in observations
+    ]
+    if len(observation_keys) != len(set(observation_keys)):
+        invalid(
+            "Adaptation observations must have unique scope/condition/strategy tuples.",
+            "input.adaptation_observations",
+        )
+
+    def close(state: dict[str, Any]) -> dict[str, Any]:
+        session = check_session_revision(state, session_id, expected_revision)
+        if session["diagnosis"]["phase"] == "awaiting_answers":
+            if not discard_awaiting:
+                invalid(
+                    "Closing an unfinished diagnosis accepts only session_id.",
+                    "input",
+                )
+            state["open_session"] = None
+            return {
+                "closed_session_id": session_id,
+                "topic_memory": None,
+                "concept_notes_upserted": 0,
+                "adaptation_observations_applied": 0,
+            }
+        if discard_awaiting:
+            invalid(
+                "A diagnosed session requires topic_memory for honest closure.",
+                "input.topic_memory",
+            )
+        assert memory_input is not None
+        if "goal" in memory_input and memory_input["goal"] != session["goal"]:
+            invalid(
+                "Topic memory goal must match the open session goal.",
+                "input.topic_memory.goal",
+            )
+        if "title" in memory_input and memory_input["title"] != session["topic_title"]:
+            invalid(
+                "Topic memory title must match the open session title.",
+                "input.topic_memory.title",
+            )
+        memory = copy.deepcopy(memory_input)
+        memory["topic_id"] = session["topic_id"]
+        memory["title"] = session["topic_title"]
+        memory["goal"] = copy.deepcopy(session["goal"])
+        memory["closed_at"] = now_timestamp()
+        validate_topic_memory(memory, "input.topic_memory")
+
+        memories = state["topic_memories"]
+        previous = next(
+            (item for item in memories if item["topic_id"] == memory["topic_id"]), None
+        )
+        if previous is None:
+            memories.append(memory)
+        else:
+            memories[memories.index(previous)] = memory
+
+        stored_notes = state["learner"]["concept_notes"]
+        for note in concept_notes:
+            copied = copy.deepcopy(note)
+            existing = next(
+                (item for item in stored_notes if item["concept_key"] == copied["concept_key"]),
+                None,
+            )
+            if existing is None:
+                stored_notes.append(copied)
+            else:
+                stored_notes[stored_notes.index(existing)] = copied
+
+        merge_adaptation_observations(
+            state["learner"]["adaptation_signals"],
+            copy.deepcopy(observations),
+            session_id,
+        )
+        state["open_session"] = None
+        return {
+            "closed_session_id": session_id,
+            "topic_memory": copy.deepcopy(memory),
+            "concept_notes_upserted": len(concept_notes),
+            "adaptation_observations_applied": len(observations),
+        }
+
+    return mutate_state(close)
+
+
+def normalized_query_list(value: Any, field: str, *, canonical: bool = False) -> list[str]:
+    values = expect_list(value, field, maximum=100)
+    output: list[str] = []
+    for index, raw in enumerate(values):
+        if canonical:
+            output.append(expect_canonical_key(raw, f"{field}[{index}]"))
+        else:
+            output.append(expect_string(raw, f"{field}[{index}]", maximum=200))
+    if len(output) != len(set(output)):
+        invalid("Values must be unique.", field)
+    return output
+
+
+def text_matches(value: str, queries: set[str]) -> bool:
+    candidate = value.casefold()
+    return any(query in candidate or candidate in query for query in queries)
+
+
+def command_context_get(payload: dict[str, Any]) -> dict[str, Any]:
+    request = expect_object(
+        payload,
+        "input",
+        allowed=("topic_terms", "concept_keys", "scopes"),
+    )
+    topic_terms = normalized_query_list(request.get("topic_terms", []), "input.topic_terms")
+    concept_keys = normalized_query_list(
+        request.get("concept_keys", []), "input.concept_keys", canonical=True
+    )
+    scopes = normalized_query_list(request.get("scopes", []), "input.scopes")
+    term_queries = {term.casefold() for term in topic_terms}
+    concept_queries = {key.casefold() for key in concept_keys}
+    scope_queries = {scope.casefold() for scope in scopes}
+    all_queries = term_queries | concept_queries | scope_queries
+    state = read_state()
+
+    preferences = []
+    for preference in state["learner"]["explicit_preferences"]:
+        scope = preference["scope"].casefold()
+        if scope in {"global", "*"} or (all_queries and text_matches(scope, all_queries)):
+            preferences.append(preference)
+
+    notes = []
+    for note in state["learner"]["concept_notes"]:
+        values = [note["concept_key"], *note.get("aliases", [])]
+        if concept_queries and any(text_matches(value, concept_queries) for value in values):
+            notes.append(note)
+        elif term_queries and any(text_matches(value, term_queries) for value in values):
+            notes.append(note)
+
+    signals = []
+    signal_queries = scope_queries | term_queries | concept_queries
+    for signal in state["learner"]["adaptation_signals"]:
+        if signal["status"] == "inactive":
+            continue
+        if signal_queries and text_matches(signal["scope"], signal_queries):
+            signals.append(signal)
+
+    memories = []
+    memory_queries = term_queries | concept_queries
+    for memory in state["topic_memories"]:
+        values = [memory["topic_id"], memory["title"], *memory.get("aliases", [])]
+        if memory_queries and any(text_matches(value, memory_queries) for value in values):
+            memories.append(memory)
+
+    return {
+        "explicit_preferences": copy.deepcopy(preferences),
+        "concept_notes": copy.deepcopy(notes),
+        "adaptation_signals": copy.deepcopy(signals),
+        "topic_memories": copy.deepcopy(memories),
+    }
+
+
+def records_for_type(state: dict[str, Any], record_type: str) -> list[dict[str, Any]]:
+    if record_type == "explicit_preference":
+        return state["learner"]["explicit_preferences"]
+    if record_type == "concept_note":
+        return state["learner"]["concept_notes"]
+    if record_type == "adaptation_signal":
+        return state["learner"]["adaptation_signals"]
+    return state["topic_memories"]
+
+
+def id_field_for_type(record_type: str) -> str:
+    return {
+        "explicit_preference": "preference_id",
+        "concept_note": "concept_key",
+        "adaptation_signal": "signal_id",
+        "topic_memory": "topic_id",
+    }[record_type]
+
+
+def validate_record_type(value: Any, field: str) -> str:
+    return expect_enum(value, RECORD_TYPES, field)
+
+
+def validate_record(record_type: str, value: Any, field: str) -> dict[str, Any]:
+    validator = {
+        "explicit_preference": validate_explicit_preference,
+        "concept_note": validate_concept_note,
+        "adaptation_signal": validate_adaptation_signal,
+        "topic_memory": validate_topic_memory,
+    }[record_type]
+    return validator(value, field)
+
+
+def command_data_inspect(payload: dict[str, Any]) -> dict[str, Any]:
+    request = expect_object(
+        payload,
+        "input",
+        allowed=("record_type", "record_id"),
+    )
+    if "record_id" in request and "record_type" not in request:
+        invalid("record_id requires record_type.", "input.record_id")
+    state = read_state()
+    if "record_type" not in request:
+        return {"state": state}
+    record_type = validate_record_type(request["record_type"], "input.record_type")
+    records = records_for_type(state, record_type)
+    record_id = None
+    if "record_id" in request:
+        record_id = expect_string(request["record_id"], "input.record_id", maximum=200)
+        id_field = id_field_for_type(record_type)
+        records = [record for record in records if record[id_field] == record_id]
+    return {
+        "record_type": record_type,
+        "record_id": record_id,
+        "matches": copy.deepcopy(records),
+    }
+
+
+def command_data_correct(payload: dict[str, Any]) -> dict[str, Any]:
+    request = expect_object(
+        payload,
+        "input",
+        required=("record_type", "record"),
+        allowed=("record_type", "record"),
+    )
+    record_type = validate_record_type(request["record_type"], "input.record_type")
+    record = copy.deepcopy(request["record"])
+    validate_record(record_type, record, "input.record")
+
+    def correct(state: dict[str, Any]) -> dict[str, Any]:
+        records = records_for_type(state, record_type)
+        id_field = id_field_for_type(record_type)
+        existing = next(
+            (item for item in records if item[id_field] == record[id_field]), None
+        )
+        if existing is None:
+            records.append(record)
+            replaced = False
+        else:
+            records[records.index(existing)] = record
+            replaced = True
+        # Whole-state validation also prevents a corrected adaptation tuple from
+        # colliding with a differently identified signal.
+        return {
+            "record_type": record_type,
+            "record": copy.deepcopy(record),
+            "replaced": replaced,
+        }
+
+    return mutate_state(correct)
+
+
+def command_data_forget(payload: dict[str, Any]) -> dict[str, Any]:
+    request = expect_object(
+        payload,
+        "input",
+        required=("record_type", "record_id"),
+        allowed=("record_type", "record_id"),
+    )
+    record_type = validate_record_type(request["record_type"], "input.record_type")
+    record_id = expect_string(request["record_id"], "input.record_id", maximum=200)
+
+    def forget(state: dict[str, Any]) -> dict[str, Any]:
+        records = records_for_type(state, record_type)
+        id_field = id_field_for_type(record_type)
+        before = len(records)
+        records[:] = [record for record in records if record[id_field] != record_id]
+        return {
+            "record_type": record_type,
+            "record_id": record_id,
+            "removed": len(records) != before,
+        }
+
+    return mutate_state(forget)
+
+
+def build_parser() -> JsonArgumentParser:
+    parser = JsonArgumentParser(prog="learn-everything")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    init_parser = commands.add_parser("init")
+    init_parser.add_argument("--data-root", required=True)
+
+    context_parser = commands.add_parser("context")
+    context_commands = context_parser.add_subparsers(dest="context_command", required=True)
+    context_get = context_commands.add_parser("get")
+    context_get.add_argument("--input", required=True)
+
+    session_parser = commands.add_parser("session")
+    session_commands = session_parser.add_subparsers(dest="session_command", required=True)
+    session_commands.add_parser("get")
+    session_start = session_commands.add_parser("start")
+    session_start.add_argument("--input", required=True)
+    session_checkpoint = session_commands.add_parser("checkpoint")
+    session_checkpoint.add_argument("--expected-revision", required=True, type=int)
+    session_checkpoint.add_argument("--input", required=True)
+    session_close = session_commands.add_parser("close")
+    session_close.add_argument("--expected-revision", required=True, type=int)
+    session_close.add_argument("--input", required=True)
+
+    data_parser = commands.add_parser("data")
+    data_commands = data_parser.add_subparsers(dest="data_command", required=True)
+    data_inspect = data_commands.add_parser("inspect")
+    data_inspect.add_argument("--input")
+    data_correct = data_commands.add_parser("correct")
+    data_correct.add_argument("--input", required=True)
+    data_forget = data_commands.add_parser("forget")
+    data_forget.add_argument("--input", required=True)
+    return parser
+
+
+def dispatch(arguments: argparse.Namespace) -> dict[str, Any]:
+    if arguments.command == "init":
+        return command_init(arguments.data_root)
+    if arguments.command == "context":
+        return command_context_get(read_json_input(arguments.input, required=True))
+    if arguments.command == "session":
+        if arguments.session_command == "get":
+            return command_session_get()
+        payload = read_json_input(arguments.input, required=True)
+        if arguments.session_command == "start":
+            return command_session_start(payload)
+        if arguments.session_command == "checkpoint":
+            return command_session_checkpoint(payload, arguments.expected_revision)
+        return command_session_close(payload, arguments.expected_revision)
+    if arguments.data_command == "inspect":
+        return command_data_inspect(read_json_input(arguments.input, required=False))
+    if arguments.data_command == "correct":
+        return command_data_correct(read_json_input(arguments.input, required=True))
+    return command_data_forget(read_json_input(arguments.input, required=True))
+
+
+def emit(value: dict[str, Any]) -> None:
+    # ASCII escaping keeps the JSON error channel writable even when an operating-
+    # system path contains undecodable bytes represented as Unicode surrogates.
+    sys.stdout.write(json.dumps(value, ensure_ascii=True, separators=(",", ":")) + "\n")
+
+
+def main() -> int:
+    try:
+        arguments = build_parser().parse_args()
+        data = dispatch(arguments)
+        emit({"ok": True, "data": data})
+        return 0
+    except CliError as exc:
+        error: dict[str, Any] = {"code": exc.code, "message": exc.message}
+        if exc.details is not None:
+            error["details"] = exc.details
+        emit({"ok": False, "error": error})
+        return 2
+    except (OSError, UnicodeError, sqlite3.Error) as exc:
+        emit(
+            {
+                "ok": False,
+                "error": {
+                    "code": "STORAGE_UNAVAILABLE",
+                    "message": "Local learning state is unavailable.",
+                    "details": {"reason": str(exc)},
+                },
+            }
+        )
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
