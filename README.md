@@ -13,7 +13,7 @@ It is not a quiz-first tutor, a mastery-scoring system, or a pre-generated curri
 - A user-level Codex Skill owns diagnosis, explanations, examples, visuals, repair, and closure.
 - A small local CLI owns validation, atomic persistence, and one user-approved data root that works from any project directory.
 - v1 supports one resumable learning session at a time. Focused questions are answered directly without creating a session.
-- A broad learning session always resolves a starting point. Without sufficient direct evidence it normally uses three brief multiple-choice questions.
+- A broad learning session resolves both a starting point and a promised target boundary. When the learner has not stated a target depth, one separate outcome-based choice is bundled with—but never replaces—the three brief prerequisite questions.
 - Explanation is the primary activity; checks and practice are optional aids for choosing the next explanation.
 - Progress means the agreed explanation boundary was covered, not that the learner was scored or certified as having mastered it.
 - Stored context is compact, scoped, inspectable, correctable, and forgettable. Raw conversations and learner-type labels are not stored.

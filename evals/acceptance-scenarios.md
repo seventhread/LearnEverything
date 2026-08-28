@@ -32,6 +32,18 @@ If the learner refuses the questions, the Skill records the starting point conse
 
 **Failure examples:** silently omitting starting-point diagnosis; a long placement test; merging “unknown” with “cannot understand the wording”; requiring an essay; showing an ability score; asking another questionnaire before teaching.
 
+### Target depth is a separate goal choice
+
+**Given** an unknown learner starts a broad topic without stating a target depth or an equivalent desired outcome.
+
+**When** the Skill asks its initial questions.
+
+**Then** it presents one separate target-depth choice in the same turn as exactly three prerequisite-knowledge diagnostic questions. The depth choice defines the promised lesson boundary; it is not a knowledge question, has no correct answer, and cannot replace one of the three diagnostic questions. Its options express observable topic-specific outcomes with clear adjacent boundaries: building a map, explaining a complete mechanism, handling a typical case with prompts, and transferring independently to a new case. It also includes an option equivalent to “I am unsure; choose the lowest depth sufficient for my purpose and tell me why.”
+
+If the learner already states a depth or equivalent outcome, the Skill adopts it without asking the depth choice again. If the learner selects the unsure option or explicitly declines to choose, the Skill may select the lowest sufficient depth, briefly state that boundary, and begin teaching without further persuasion. Silence, an omitted answer, or interruption alone is not consent to default; the same unresolved choice remains recoverable.
+
+**Failure examples:** silently inferring depth when none was supplied; using abstract labels whose outcomes overlap; presenting only two knowledge questions plus one depth question; treating depth as learner ability; inferring the learner's desired destination from diagnostic performance; asking again after an explicit choice; blocking teaching after uncertainty or explicit refusal.
+
 ## A2. Relevant prior context contributes to diagnosis
 
 **Given** stored context credibly describes a prerequisite relevant to the learner's new goal.

@@ -380,6 +380,84 @@ class LearnEverythingCliTests(unittest.TestCase):
         self.assertEqual(list(project_a.iterdir()), [])
         self.assertEqual(list(project_b.iterdir()), [])
 
+    def test_target_depth_choice_persists_beside_three_knowledge_questions(self) -> None:
+        self.initialize()
+        start = self.awaiting_start(
+            "session-depth-choice", "topic-depth-choice"
+        )
+        diagnosis = start["diagnosis"]
+        assert isinstance(diagnosis, dict)
+        questions = diagnosis["questions"]
+        assert isinstance(questions, list)
+        questions.append(
+            {
+                "question_id": "goal-depth",
+                "prompt": "学完这次，你希望自己能做到哪一步？",
+                "options": [
+                    {
+                        "option_id": "orientation",
+                        "label": "建立地图",
+                        "kind": "answer",
+                    },
+                    {
+                        "option_id": "explain",
+                        "label": "讲清机制",
+                        "kind": "answer",
+                    },
+                    {
+                        "option_id": "apply",
+                        "label": "带提示使用",
+                        "kind": "answer",
+                    },
+                    {
+                        "option_id": "independent",
+                        "label": "独立迁移",
+                        "kind": "answer",
+                    },
+                    {
+                        "option_id": "unsure",
+                        "label": "不确定，请根据我的学习目的推荐",
+                        "kind": "unknown_or_guessing",
+                    },
+                ],
+            }
+        )
+
+        self.ok("session", "start", "--input", "-", payload=start)
+        restored = self.get_session()
+        assert restored is not None
+        restored_diagnosis = restored["diagnosis"]
+        assert isinstance(restored_diagnosis, dict)
+        restored_questions = restored_diagnosis["questions"]
+        assert isinstance(restored_questions, list)
+        self.assertEqual(len(restored_questions), 4)
+        self.assertEqual(restored_questions[-1]["question_id"], "goal-depth")
+
+        questions[-1]["selected_option_id"] = "unsure"
+        checkpoint = {
+            "session_id": start["session_id"],
+            "status": "active",
+            "goal": {},
+            "diagnosis": diagnosis,
+        }
+        self.ok(
+            "session",
+            "checkpoint",
+            "--expected-revision",
+            "1",
+            "--input",
+            "-",
+            payload=checkpoint,
+        )
+        resumed = self.get_session()
+        assert resumed is not None
+        resumed_diagnosis = resumed["diagnosis"]
+        assert isinstance(resumed_diagnosis, dict)
+        resumed_questions = resumed_diagnosis["questions"]
+        assert isinstance(resumed_questions, list)
+        self.assertEqual(resumed_questions[-1]["selected_option_id"], "unsure")
+        self.assertEqual(resumed["goal"], {})
+
     def test_checkpoint_completes_diagnosis_pauses_and_rejects_stale_revision(self) -> None:
         self.initialize()
         start = self.awaiting_start()

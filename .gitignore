@@ -1,2 +1,13 @@
+# OS and Python artifacts
+.DS_Store
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.coverage
+
+# Local credentials and learner data
+.env
+.env.*
+LearnEverythingData/
+learn-everything.sqlite3
+learn-everything.sqlite3-*

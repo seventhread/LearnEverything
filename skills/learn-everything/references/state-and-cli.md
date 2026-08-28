@@ -115,7 +115,7 @@ learn-everything session start --input -
 
 - 必填：`topic_id`、`topic_title`、`goal`、`diagnosis`；`session_id` 可省略让 CLI 生成，`status` 可省略且默认 `active`。
 - `topic_id` 是主题记忆的 upsert 主键：明确命中既有主题时复用；否则使用可移植的 ASCII canonical slug。通常省略 `session_id`，避免手工碰撞。
-- awaiting 时 goal 可缺 `purpose`/`target_depth`，但不得含 `completion_items`；questions 为 1–5 题，产品默认恰好三题。
+- awaiting 时 goal 可缺 `purpose`/`target_depth`，但不得含 `completion_items`；questions 为 1–5 题。产品默认恰好三道知识诊断；若目标深度未明确，同组另存一道 `question_id:"goal-depth"` 的选择，通常共四题。该选择不计入知识诊断。
 - complete 时 goal 必须完整，并提供 `teaching_state`；若准备立即交付第一单元，也可提供 `unconfirmed_unit`。
 - CLI 添加 revision 1、`created_at`、`updated_at`。成功 `data` 精确为 `{"session":<完整会话>}`。
 - 已有会话报 `OPEN_SESSION_EXISTS`，不覆盖。
@@ -266,6 +266,8 @@ forget 输入 `{"record_type":"concept_note","record_id":"linear-algebra.dot-pro
 target depth 是 `orientation|explain|apply|independent`；completion items 为 1–5 项，status 是 `pending|covered`。
 
 awaiting diagnosis 形状见 start；questions 为 1–5，每题 options 为 2–8，并必须含 `kind:"unknown_or_guessing"`。option kind 是 `answer|unknown_or_guessing|cannot_parse_options`。回答前可省略 `selected_option_id`，提供时只能引用本题 option。
+
+目标深度未明确时使用同一 questions 数组保存第四道选择，以便中断后原样恢复：`question_id` 固定为 `goal-depth`，四个结果选项的 `option_id` 分别为 `orientation|explain|apply|independent`，另加 `option_id:"unsure"`、`kind:"unknown_or_guessing"` 的“不确定，请根据我的学习目的推荐”。它没有正确答案，不进入 diagnosis summary；结算后只写入 `goal.target_depth`。用户明确给出等价结果时不生成该题。选择 unsure 或明确拒答才允许采用最低足够深度；漏答或中断时继续保持 awaiting。
 
 complete diagnosis：
 
