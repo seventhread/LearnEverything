@@ -18,9 +18,9 @@ Use a three-point scale per dimension:
 
 ### 2. Starting-point fit
 
-- `0`: ignores known prerequisites or assumes missing ones.
+- `0`: ignores known prerequisites, assumes missing ones, or treats a likely unfamiliar acronym as self-explanatory.
 - `1`: broadly level-appropriate but generic.
-- `2`: begins from a relevant known anchor, skips unnecessary basics, and bridges only the prerequisite actually needed.
+- `2`: begins from a relevant known anchor, skips unnecessary basics, bridges only the prerequisite actually needed, and expands likely unfamiliar acronyms on first use with the English full name and a brief meaning.
 
 ### 3. Explanatory model
 

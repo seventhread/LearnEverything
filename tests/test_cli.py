@@ -337,6 +337,28 @@ class LearnEverythingCliTests(unittest.TestCase):
         broken_env["LEARN_EVERYTHING_CONFIG"] = str(config_directory)
         self.error("STORAGE_UNAVAILABLE", "session", "get", env=broken_env)
 
+    def test_database_open_failure_reports_the_configured_location(self) -> None:
+        self.data_root.mkdir(parents=True)
+        database = self.data_root / "learn-everything.sqlite3"
+        database.write_text("not a sqlite database", encoding="utf-8")
+        self.config_path.parent.mkdir(parents=True)
+        self.config_path.write_text(
+            json.dumps(
+                {"config_version": "1", "data_root": str(self.data_root)},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        error = self.error("STORAGE_UNAVAILABLE", "session", "get")
+        details = error.get("details")
+        self.assertIsInstance(details, dict)
+        assert isinstance(details, dict)
+        self.assertEqual(details.get("data_root"), str(self.data_root.resolve()))
+        self.assertEqual(details.get("database_path"), str(database.resolve()))
+        self.assertIsInstance(details.get("reason"), str)
+        self.assertTrue(details["reason"])
+
     def test_init_is_idempotent_but_does_not_silently_switch_roots(self) -> None:
         self.initialize()
         self.initialize()

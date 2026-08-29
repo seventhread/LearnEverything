@@ -64,9 +64,11 @@ The learner's current explicit statement overrides stored context. A prior expla
 
 **Then** the Skill explains the most important relationship through a coherent mental model and chooses a representation suited to the knowledge structure. It may use an execution trace for a system, runnable code for an API, an invariant and worked trace for an algorithm, symbol roles and a numerical example for a formula, or assumptions and scenarios for a financial concept.
 
+When a potentially unfamiliar English acronym first appears, the Skill gives its English expansion and a brief Chinese meaning. It does not mechanically repeat the expansion after the term has been defined in the same conversation.
+
 Checks are brief and subordinate to explanation. A representation is used only when it makes the relationship clearer; no single formula, diagram, or lesson template is forced across topics.
 
-**Failure examples:** explanation as a preface to a quiz; every paragraph ending in a mandatory question; forcing all topics into formulas; decorative diagrams; code with no execution explanation; financial calculations with unstated assumptions or boundaries.
+**Failure examples:** explanation as a preface to a quiz; every paragraph ending in a mandatory question; unexplained acronym strings; forcing all topics into formulas; decorative diagrams; code with no execution explanation; financial calculations with unstated assumptions or boundaries.
 
 ## A4. Difficulty triggers a repaired explanation in the same turn
 
@@ -174,9 +176,9 @@ If the learner stops before the boundary, the session closes as stopped with rem
 
 **Then** it uses the same approved data root, retrieves relevant context, and writes no canonical learner state into the current project. It does not require setup again merely because the working directory changed.
 
-If the data root is unavailable or a save fails, the Skill continues teaching, clearly says that current progress is not reliably recoverable, and does not report that data was saved. When storage returns, temporary content is not silently merged into an older session.
+Only a `NOT_INITIALIZED` result may trigger the one-time data-root choice and authorization. If the configured data root is unavailable or a save fails with `STORAGE_UNAVAILABLE`, the Skill does not ask for initialization authorization again, call `init`, or switch roots. It may request runtime access to the already configured location; if access remains unavailable, it continues teaching, clearly says that current progress is not reliably recoverable, and does not report that data was saved. When storage returns, temporary content is not silently merged into an older session.
 
-**Failure examples:** writing before authorization; hidden per-project profiles; repeated initialization in every repository; silently selecting a different data root; refusing to explain because persistence failed; reporting recovery as available after a failed save; silently backfilling temporary teaching into stale state.
+**Failure examples:** writing before authorization; treating missing authorization messages in the current conversation as uninitialized; asking for a new directory after `STORAGE_UNAVAILABLE`; hidden per-project profiles; repeated initialization in every repository; silently selecting a different data root; refusing to explain because persistence failed; reporting recovery as available after a failed save; silently backfilling temporary teaching into stale state.
 
 ## Release gate
 

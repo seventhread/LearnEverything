@@ -968,17 +968,29 @@ def open_database() -> sqlite3.Connection:
             "The configured LearnEverything data root is unavailable.",
             {"data_root": str(root), "database_path": str(database)},
         )
+    connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(
             database.as_uri() + "?mode=rw", uri=True, timeout=5.0, isolation_level=None
         )
         configure_connection(connection, initialize=False)
+        # sqlite3.connect can succeed lazily even when the sandbox cannot actually
+        # read or lock the configured database. Force one schema read here so the
+        # resulting error retains the configured location instead of surfacing later
+        # from load_state with only an opaque operating-system reason.
+        connection.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
         return connection
     except (OSError, sqlite3.Error) as exc:
+        if connection is not None:
+            connection.close()
         raise CliError(
             "STORAGE_UNAVAILABLE",
             "The LearnEverything database cannot be opened.",
-            {"database_path": str(database), "reason": str(exc)},
+            {
+                "data_root": str(root),
+                "database_path": str(database),
+                "reason": str(exc),
+            },
         ) from exc
 
 

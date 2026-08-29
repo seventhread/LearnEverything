@@ -18,7 +18,7 @@
 
 成功退出码 0，失败退出码 2。`details` 可能省略；只根据 `ok`、`error.code` 和结构化 details 判断，不解析 message。未知字段、错误类型、空必填字符串、无效枚举、重复局部 ID 和悬空引用均为 `INVALID_INPUT`。
 
-CLI 通过用户级配置定位首次授权的数据根，因而可跨项目调用。`LEARN_EVERYTHING_CONFIG` 只供隔离测试，正常教学不要设置，也不要在当前项目复制规范状态。
+CLI 通过用户级配置定位首次授权的数据根，因而可跨项目调用。每次广泛学习都先用 `session get` 探测：成功就复用，只有 `NOT_INITIALIZED` 表示从未完成初始化。当前对话没有先前授权消息不是重新询问的依据。`LEARN_EVERYTHING_CONFIG` 只供隔离测试，正常教学不要设置，也不要在当前项目复制规范状态。
 
 ## 命令
 
@@ -28,7 +28,7 @@ CLI 通过用户级配置定位首次授权的数据根，因而可跨项目调�
 learn-everything init --data-root <path>
 ```
 
-先取得用户对该目录的一次性明确授权。成功 `data` 精确为：
+只有 `session get` 返回 `NOT_INITIALIZED` 后，才先取得用户对该目录的一次性明确授权并调用本命令。已有配置是持久的一次性授权记录；不得仅因换了对话或 cwd 再次询问或调用 `init`。成功 `data` 精确为：
 
 ```json
 {
@@ -325,12 +325,12 @@ canonical state 精确包含 `{schema_version:"0.2.0",learner:{explicit_preferen
 
 | code | details | 动作 |
 | --- | --- | --- |
-| `NOT_INITIALIZED` | `{config_path}` | 首次需保存时请用户授权目录后 init；聚焦问题无需初始化 |
+| `NOT_INITIALIZED` | `{config_path}` | 这是 `session get` 探测后唯一允许询问数据目录和一次性授权的结果；首次需保存时授权后 init，再重试 get；聚焦问题无需初始化 |
 | `ALREADY_INITIALIZED` | `{configured_data_root,requested_data_root}` | 不换根；说明已配置位置 |
 | `OPEN_SESSION_EXISTS` | `{session_id,topic_id,topic_title}` | get 后让用户明确恢复、保留或关闭，绝不覆盖 |
 | `NO_OPEN_SESSION` | 无 | 重读状态，不声称已保存/关闭 |
 | `INVALID_INPUT` | `{field}` | 修正 payload，不丢字段绕过校验 |
 | `REVISION_CONFLICT` | 同 session：`{session_id,expected_revision,actual_revision}`；错 session：`{expected_session_id,actual_session_id,actual_revision}` | 立即 get；不自动合并或覆盖，让用户决定真实边界 |
-| `STORAGE_UNAVAILABLE` | 按位置含 `config_path`、`data_root`、`database_path`、`reason` 的适用子集 | 继续讲解，明确本轮未可靠保存；恢复后先 get，不回填临时进度 |
+| `STORAGE_UNAVAILABLE` | 按位置含 `config_path`、`data_root`、`database_path`、`reason` 的适用子集 | 不得视为未初始化，不得重新询问目录授权、调用 init 或静默换根。若运行环境缺少已配置位置的访问权限，只请求该位置所需的运行时访问；这不是重新选择数据根。失败或用户不授权时继续讲解，明确本轮未可靠保存；恢复后先重试 get，不回填临时进度 |
 
 任何失败都不代表写入成功；只有 `ok:true` 才能告诉用户已保存。

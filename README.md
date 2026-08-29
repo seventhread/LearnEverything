@@ -42,8 +42,9 @@ Run the black-box CLI tests with:
 python3 -m unittest discover -s tests -v
 ```
 
-Validate the Skill package with Codex's `skill-creator` validator, then copy the
-`skills/learn-everything` directory to `~/.codex/skills/learn-everything` for local use.
+Validate the Skill package with Codex's `skill-creator` validator. For local development,
+install `~/.codex/skills/learn-everything` as a symbolic link to the repository's
+`skills/learn-everything` directory so the repository remains the single editable source.
 On the first broad learning session, the Skill asks for a data directory before it runs
 `learn-everything init`; it does not choose a canonical learning-data location on the
 learner's behalf. If authorization is deferred, teaching can continue but is explicitly

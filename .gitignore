@@ -8,6 +8,7 @@ __pycache__/
 # Local credentials and learner data
 .env
 .env.*
+/.learn-everything-data/
 LearnEverythingData/
 learn-everything.sqlite3
 learn-everything.sqlite3-*
