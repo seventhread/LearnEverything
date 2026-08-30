@@ -24,8 +24,11 @@ LearnEverything Vault.
 
 **Then** it distinguishes a new independent Vault, an existing folder, and the current active
 Vault; shows canonical absolute paths; explains the local plaintext and Git-history implications;
-offers skippable behavior-oriented preference choices or free narration; and shows the combined
-mechanical plan and Learning Guidance diff before requesting confirmation.
+explains what Learning Guidance controls and that skipping it does not disable learning or saving;
+offers skippable behavior-oriented preference choices or free narration; presents Git choices by
+their user-visible outcomes rather than unexplained internal codes; explicitly says managed Git is
+local and does not create a remote or push; and shows the combined mechanical plan and Learning
+Guidance diff before requesting confirmation.
 
 Path collection, menu answers, and narration are zero-write before confirmation. Execution uses
 the reviewed `plan_hash`. A changed precondition causes a zero-write re-preview rather than running
@@ -35,7 +38,8 @@ Saying “teach me from zero” is not initialization.
 
 **Failure examples:** guessing a Vault from the current project; writing while collecting answers;
 storing questionnaire enums or learner-style labels; hiding an existing Vault conflict; offering a
-force overwrite.
+force overwrite; listing `managed/true`, `managed/false`, or `off/false` without explaining their
+effects; making “skip Learning Guidance” sound like learning records will not be saved.
 
 ## A2. Initialization preserves ownership boundaries
 
@@ -61,15 +65,33 @@ overwriting `Home.md`; activating a half-initialized target; reporting repeated 
 **When** the Skill determines the starting point.
 
 **Then** it retrieves only valid relevant Vault context when available, treats current user
-statements as authoritative, asks only questions that materially affect the first explanation, and
-forms one to five stable completion items inside the conversation. With little reliable context it
-may offer three brief prerequisite choices; refusal leads to a conservative start, not persuasion.
+statements as authoritative, and forms one to five stable completion items inside the conversation.
+Relevant current-request statements can answer prerequisites directly. Recent, direct, scoped
+evidence can replace the default questionnaire, with at most one narrow validation when a critical
+prerequisite is stale, contradictory, or uncertain.
+
+Without that evidence, it presents exactly three brief prerequisite choices together. Every
+knowledge question distinguishes “unknown before seeing the choices / mainly guessing”; a
+non-simple question separately allows “I cannot understand these choices.” Refusal leads to a
+conservative start, not persuasion.
+
+Target depth is separate. A request such as “只想大概了解，不用太深” maps to the lowest suitable
+observable boundary and the Skill says what that means; it does not cancel prerequisite diagnosis.
+When no outcome or depth is given, one outcome-based choice appears in the same turn as—but does
+not replace—the three knowledge questions.
 
 The same response that resolves the diagnosis states the chosen starting point and begins a
-substantive explanation. No session ID or checkpoint is created.
+substantive explanation. It also summarizes the promised boundary in natural language so the user
+can tell when the learning goal is done; internal completion IDs remain hidden. No session ID or
+checkpoint is created.
 
 **Failure examples:** a long placement test; silently treating an old note as mastery; blocking on
-an unavailable Vault; showing a score or learner level; writing diagnosis answers.
+an unavailable Vault; treating shallow depth as permission to skip diagnosis; making the default
+three questions optional; showing a score or learner level; writing diagnosis answers.
+
+**Regression case:** with an empty Vault, “学习一下 PnL 绩效，不用太深” receives three lightweight
+prerequisite questions before the first lesson. “不用太深” sets a small orientation boundary; it
+does not justify silently assuming the user's finance or trading background.
 
 ## A4. Explanation remains the main activity
 
@@ -115,6 +137,11 @@ still be saved, but it is not disguised as learning progress.
 **Failure examples:** an automatic legacy snapshot; a paused/open session; an “unfinished” learning
 record; silently merging temporary content into a later conversation.
 
+An explicit scope clarification is different from interruption. “到这里就够了，我只想大概了解”
+narrows the promised outcome; if the already delivered content covers that new boundary, the Skill
+uses normal active closure. “先停一下，改天继续” leaves the original boundary unfinished and saves
+nothing.
+
 ## A7. Completion and saving require separate turns
 
 **Given** every completion item has already been delivered in an earlier assistant message and no
@@ -122,15 +149,26 @@ scope-blocking confusion remains.
 
 **When** the Skill closes the agreed boundary.
 
-**Then** it explicitly says the target is covered, provides a compact synthesis of already delivered
-relationships, and offers ending-and-saving, reinforcement, or explicit extension. It writes only
-after the user subsequently chooses to end and save.
+**Then** before preparing any new teaching unit it settles coverage from earlier assistant messages.
+If an item remains, the offered next step is that specific in-scope item. If none remains and no
+scope-blocking confusion exists, it must explicitly say the target is covered, provide a compact
+synthesis of already delivered relationships, and offer ending-and-saving, reinforcement, or
+explicit extension. It writes only after the user subsequently chooses to end and save.
+
+Active closure is a required transition, not optional phrasing. Once the boundary is covered, the
+Skill does not end with a generic “下一段可以讲……” and does not automatically turn adjacent material
+into another required lesson.
 
 If the closing synthesis supplies a material missing explanation for the first time, another user
 confirmation is required. Delivered scope is never called mastery.
 
 **Failure examples:** saving in the same turn that first completes the lesson; treating silence as
-consent; continuing into advanced material automatically; claiming mastery from immediate answers.
+consent; continuing into advanced material automatically; repeatedly asking the user to say
+“继续”; waiting for the user to ask whether the lesson is done; claiming mastery from immediate
+answers.
+
+**Regression case:** after the final promised unit has appeared in an earlier assistant message, a
+user reply of “继续” triggers the completion synthesis and end/save choice—not an adjacent new unit.
 
 ## A8. A successful save has three distinct outcomes
 
