@@ -1,187 +1,223 @@
-# Explanation-first v1 acceptance scenarios
+# LearnEverything v2 acceptance scenarios
 
-These scenarios validate observable product behavior. They do not require exact wording, reward longer lessons, or treat diagnostic accuracy and immediate quiz performance as learner mastery.
+These scenarios validate observable behavior. They do not reward longer lessons, quiz frequency,
+learner scores, or the number of generated notes.
 
-## A0. A focused question receives a focused answer
+## A0. A focused question stays focused
 
-**Given** the learner asks a concrete, self-contained question rather than requesting an ongoing learning session.
+**Given** the user asks a concrete, self-contained question.
 
 **When** the Skill responds.
 
-**Then** it answers the question directly and uses relevant conversational context without forcing goal selection, target-depth selection, persistence setup, or a three-question diagnostic first.
+**Then** it answers directly without starting initialization, a broad-learning diagnostic, or a
+persistent learning record.
 
-**Failure examples:** treating every question as course enrollment; withholding the answer until onboarding is complete; creating a persistent learning session for an incidental question.
+**Failure examples:** turning every question into course enrollment; writing the Vault because a
+concept was mentioned; withholding the answer until setup is complete.
 
-## A1. An unknown learner starts a broad topic
+## A1. Initialization is explicit and previewed
 
-**Given** no reliable relevant context exists and the learner explicitly starts learning a broad topic.
+**Given** the user explicitly asks to initialize, register, validate, reconfigure, or switch a
+LearnEverything Vault.
+
+**When** the Skill performs conversational initialization.
+
+**Then** it distinguishes a new independent Vault, an existing folder, and the current active
+Vault; shows canonical absolute paths; explains the local plaintext and Git-history implications;
+offers skippable behavior-oriented preference choices or free narration; and shows the combined
+mechanical plan and Learning Guidance diff before requesting confirmation.
+
+Path collection, menu answers, and narration are zero-write before confirmation. Execution uses
+the reviewed `plan_hash`. A changed precondition causes a zero-write re-preview rather than running
+the new plan silently.
+
+Saying “teach me from zero” is not initialization.
+
+**Failure examples:** guessing a Vault from the current project; writing while collecting answers;
+storing questionnaire enums or learner-style labels; hiding an existing Vault conflict; offering a
+force overwrite.
+
+## A2. Initialization preserves ownership boundaries
+
+**Given** the candidate path is non-empty, inside another Git repository or Vault, contains a
+conflicting marker, or already has user-authored Markdown.
+
+**When** initialization is previewed or executed.
+
+**Then** non-empty unmarked folders require explicit existing mode; nested LearnEverything Vaults
+and reserved-path conflicts are rejected before writing; a parent Git repository requires Git mode
+`off`; and existing notes, `.gitignore`, Git config, index, and history are not overwritten.
+
+Switching only changes the locator after the target is valid. It never moves, merges, copies, or
+deletes the old Vault. Repeating an already satisfied plan is a no-op.
+
+**Failure examples:** initializing a nested repository by default; staging an existing Vault;
+overwriting `Home.md`; activating a half-initialized target; reporting repeated commits as no-op.
+
+## A3. A broad topic starts from a useful boundary
+
+**Given** the user asks to systematically learn or understand a broad topic.
 
 **When** the Skill determines the starting point.
 
-**Then** it:
+**Then** it retrieves only valid relevant Vault context when available, treats current user
+statements as authoritative, asks only questions that materially affect the first explanation, and
+forms one to five stable completion items inside the conversation. With little reliable context it
+may offer three brief prerequisite choices; refusal leads to a conservative start, not persuasion.
 
-- clarifies the learning goal only when the learner has not already supplied it;
-- presents three brief diagnostic questions together by default;
-- gives every knowledge question an option equivalent to “I did not know before seeing these choices / I am mainly guessing”;
-- separately gives non-simple questions an option equivalent to “I do not understand what these choices mean”;
-- uses the answers only to choose the explanation's starting point and representation;
-- displays no score, level, correctness percentage, or mastery estimate;
-- briefly states the chosen starting point and begins a substantive explanation in the same response after the diagnosis is resolved.
+The same response that resolves the diagnosis states the chosen starting point and begins a
+substantive explanation. No session ID or checkpoint is created.
 
-If the learner refuses the questions, the Skill records the starting point conservatively as unknown and teaches immediately. Refusal does not trigger repeated persuasion or block content.
+**Failure examples:** a long placement test; silently treating an old note as mastery; blocking on
+an unavailable Vault; showing a score or learner level; writing diagnosis answers.
 
-**Failure examples:** silently omitting starting-point diagnosis; a long placement test; merging “unknown” with “cannot understand the wording”; requiring an essay; showing an ability score; asking another questionnaire before teaching.
-
-### Target depth is a separate goal choice
-
-**Given** an unknown learner starts a broad topic without stating a target depth or an equivalent desired outcome.
-
-**When** the Skill asks its initial questions.
-
-**Then** it presents one separate target-depth choice in the same turn as exactly three prerequisite-knowledge diagnostic questions. The depth choice defines the promised lesson boundary; it is not a knowledge question, has no correct answer, and cannot replace one of the three diagnostic questions. Its options express observable topic-specific outcomes with clear adjacent boundaries: building a map, explaining a complete mechanism, handling a typical case with prompts, and transferring independently to a new case. It also includes an option equivalent to “I am unsure; choose the lowest depth sufficient for my purpose and tell me why.”
-
-If the learner already states a depth or equivalent outcome, the Skill adopts it without asking the depth choice again. If the learner selects the unsure option or explicitly declines to choose, the Skill may select the lowest sufficient depth, briefly state that boundary, and begin teaching without further persuasion. Silence, an omitted answer, or interruption alone is not consent to default; the same unresolved choice remains recoverable.
-
-**Failure examples:** silently inferring depth when none was supplied; using abstract labels whose outcomes overlap; presenting only two knowledge questions plus one depth question; treating depth as learner ability; inferring the learner's desired destination from diagnostic performance; asking again after an explicit choice; blocking teaching after uncertainty or explicit refusal.
-
-## A2. Relevant prior context contributes to diagnosis
-
-**Given** stored context credibly describes a prerequisite relevant to the learner's new goal.
-
-**When** the Skill determines the starting point.
-
-**Then** it treats the scoped, current evidence as part of the diagnosis rather than silently skipping diagnosis. It briefly connects the chosen starting point to that evidence and asks at most one narrow validation question only when a consequential prerequisite is stale, contradictory, or uncertain.
-
-The learner's current explicit statement overrides stored context. A prior explanation, one correct check, or the model's own summary is not sufficient by itself to prove durable knowledge.
-
-**Failure examples:** mechanically repeating three questions despite strong relevant evidence; saying “no diagnosis needed” without a starting-point decision; trusting an unrelated similarly named concept; treating old topic memory as mastery; ignoring a current correction.
-
-## A3. Explanation remains the main activity across domains
+## A4. Explanation remains the main activity
 
 **Given** the starting point is sufficiently clear.
 
 **When** teaching begins or continues.
 
-**Then** the Skill explains the most important relationship through a coherent mental model and chooses a representation suited to the knowledge structure. It may use an execution trace for a system, runnable code for an API, an invariant and worked trace for an algorithm, symbol roles and a numerical example for a formula, or assumptions and scenarios for a financial concept.
+**Then** the Skill explains the central relationship with a compact mental model and a suitable
+representation, then grounds it in a worked example, trace, scenario, or calculation. Checks and
+practice are optional aids only when their answers would change the next explanation.
 
-When a potentially unfamiliar English acronym first appears, the Skill gives its English expansion and a brief Chinese meaning. It does not mechanically repeat the expansion after the term has been defined in the same conversation.
+The detailed quality gate is defined in
+[`explanation-quality-rubric.md`](explanation-quality-rubric.md).
 
-Checks are brief and subordinate to explanation. A representation is used only when it makes the relationship clearer; no single formula, diagram, or lesson template is forced across topics.
+**Failure examples:** quiz-first tutoring; decorative diagrams; unexplained acronyms; code without
+an execution model; financial or high-risk advice without assumptions and boundaries.
 
-**Failure examples:** explanation as a preface to a quiz; every paragraph ending in a mandatory question; unexplained acronym strings; forcing all topics into formulas; decorative diagrams; code with no execution explanation; financial calculations with unstated assumptions or boundaries.
+## A5. Difficulty triggers same-turn repair
 
-## A4. Difficulty triggers a repaired explanation in the same turn
-
-**Given** the learner says an explanation is too hard, too abstract, too fast, too detailed, or simply unclear.
+**Given** the user says the explanation is unclear, too hard, too abstract, too fast, or too detailed.
 
 **When** the Skill responds.
 
-**Then** the same response materially changes the explanation by restoring a prerequisite, defining terminology, filling a skipped step, replacing the example, changing representation, or reducing irrelevant detail.
+**Then** that response materially changes the explanation by restoring a prerequisite, defining a
+term, filling a reasoning gap, changing the example or representation, or removing irrelevant
+detail. Vague feedback receives a safe simplified explanation before at most one narrow question.
 
-When the learner identifies the problem, the Skill repairs it directly. When the feedback is vague, it first supplies a safe simplified explanation and may then offer one short, low-friction choice to locate the remaining gap. The clarification is never a prerequisite for receiving help.
+**Failure examples:** only asking what was unclear; paraphrasing the same abstraction; shrinking the
+promised goal silently; launching another diagnostic chain.
 
-**Failure examples:** only asking “what did you not understand?”; repeating the same explanation with synonyms; merely shortening sentences; praising without repairing; launching a new diagnostic chain; wandering into an unrelated prerequisite course.
+## A6. Interruption creates no learning state
 
-## A5. Completion items remain stable unless the learner changes scope
+**Given** a broad learning conversation is diagnosing, teaching, repairing, consolidating, or
+waiting for a final save decision.
 
-**Given** diagnosis has resolved and the Skill has created a small internal set of `completion_items` for the learner's stated goal.
+**When** the conversation is interrupted, the user is silent, switches topics/tasks, or ends before
+the completion gate.
 
-**When** teaching adapts to feedback.
+**Then** there is no new learning record, no knowledge/profile modification, no Git commit, and no
+promise that the conversation can resume. A user-requested independent data-control change may
+still be saved, but it is not disguised as learning progress.
 
-**Then** the Skill may reorder explanation units, change examples or representations, and insert the minimum prerequisite bridge without silently changing the goal boundary. Equivalent wording retains the same item identity, and an item is covered only after its promised explanation has observably reached the conversation.
+**Failure examples:** an automatic legacy snapshot; a paused/open session; an “unfinished” learning
+record; silently merging temporary content into a later conversation.
 
-When the learner explicitly asks to extend or change the goal, the Skill adds new uncovered items or starts a new goal; new material never inherits old coverage. Adjacent advanced content is optional until the learner chooses it.
+## A7. Completion and saving require separate turns
 
-For the same topic and purpose, `orientation`, `explain`, `apply`, and `independent` produce progressively different promised boundaries as defined by the design. A deeper value may add guided or lower-prompt application, but it never changes completion into a mastery score.
+**Given** every completion item has already been delivered in an earlier assistant message and no
+scope-blocking confusion remains.
 
-**Failure examples:** rewriting completion criteria after every turn; marking planned or unconfirmed content as covered; adding an advanced chapter without learner direction; shrinking the original goal after confusion; treating teaching order as a fixed public syllabus.
+**When** the Skill closes the agreed boundary.
 
-## A6. Pause and resume use the last confirmed conceptual boundary
+**Then** it explicitly says the target is covered, provides a compact synthesis of already delivered
+relationships, and offers ending-and-saving, reinforcement, or explicit extension. It writes only
+after the user subsequently chooses to end and save.
 
-**Given** the learner explicitly pauses, or the task ends with one explanation unit not yet confirmed by a later learner turn.
+If the closing synthesis supplies a material missing explanation for the first time, another user
+confirmation is required. Delivered scope is never called mastery.
 
-**When** the session is saved and later resumed.
+**Failure examples:** saving in the same turn that first completes the lesson; treating silence as
+consent; continuing into advanced material automatically; claiming mastery from immediate answers.
 
-**Then** the checkpoint contains the goal, covered and remaining completion items, unresolved confusion, the next teaching move, and at most one compact `unconfirmed_unit`. It does not require the raw conversation.
+## A8. A successful save has three distinct outcomes
 
-On resume, the Skill gives a short reorientation and continues from the last confirmed boundary without re-running the default diagnosis. If an unconfirmed unit exists, it conservatively restates its key idea before advancing and does not assume the learner saw or understood it.
+**Given** the user has passed the completion gate and explicitly confirmed saving.
 
-If interruption occurs while diagnosis is still awaiting answers, the saved state contains the same structured questions and any selected answers, but no completion items, teaching state, or unconfirmed teaching unit. Resume presents the same unanswered choices instead of generating a new diagnostic set.
+**When** the Skill prepares the Vault change.
 
-If the learner explicitly abandons an unfinished diagnosis, closing clears the open slot without creating topic memory, concept notes, or adaptation evidence for teaching that never happened.
+**Then** it appends one `learning-record`, creates or updates only reusable `concept`/`map` knowledge,
+and changes Learning Guidance only for explicit durable preferences or direct teaching feedback.
+The learning record links the knowledge it deposited into; knowledge-page existence does not claim
+the user has mastered it.
 
-**Failure examples:** a generic “continue learning” checkpoint; replaying the whole lesson; restarting or replacing an unfinished diagnostic; skipping past unconfirmed content; recording an unconfirmed unit as learned; keeping a second resume record that can diverge from the current snapshot.
+Raw chat, diagnostic answers, per-turn events, scores, and session/checkpoint fields are absent.
 
-## A7. One open learning session is never silently overwritten
+**Failure examples:** one monolithic topic summary replacing history; a page for every noun; duplicate
+topic/concept stores; personality inference; copying the conversation into Markdown.
 
-**Given** one resumable learning session is open.
+## A9. Saving performs semantic review before writing
 
-**When** the learner asks to begin another formal topic.
+**Given** a completed save would create or modify Vault pages.
 
-**Then** the Skill reports the existing session and obtains an explicit decision: resume it, keep it and decline the new session, or close/switch it before creating the new session. It never mixes topics or silently replaces resumable state.
+**When** the incremental semantic review finds overlap, contradiction, staleness, weak evidence, or
+profile conflict.
 
-A focused unrelated question may still be answered directly without opening a second session or modifying the current topic memory.
+**Then** the model first reads local evidence and resolves what it safely can. It checks authoritative
+online sources when the claim is time-sensitive, high-stakes, source-conflicted, or central and
+insufficiently supported, while sending only a decontextualized minimum claim. User instructions
+that prohibit online access are honored.
 
-In deterministic integration tests, two starts against an empty slot result in exactly one open session, and a checkpoint using a stale `expected_revision` is rejected without changing stored state.
+Non-semantic wording, link, and source-metadata repairs may proceed. A correction that changes a
+core delivered claim returns to teaching and requires a new completion/save confirmation. Important
+remaining organization or evidence choices are presented with evidence and a recommendation.
 
-**Failure examples:** last-write-wins replacement; accepting a stale checkpoint; pretending multiple resumable sessions are supported; storing two topics in one session; forcing the learner to close a session merely to receive a focused side answer.
+**Failure examples:** asking the user to adjudicate an unprocessed factual conflict; letting a web
+page authorize writes; storing temporary research; writing a corrected core conclusion as if it had
+already been taught.
 
-## A8. Adaptation signals evolve minimally and remain scoped
+## A10. Structure lint is deterministic and blocking
 
-**Given** the Skill actually used a teaching strategy and received meaningful feedback about that strategy.
+**Given** the Vault contains managed Markdown and optional unmanaged Obsidian notes.
 
-**When** adaptation memory is updated across sessions.
+**When** `vault lint` runs.
 
-**Then** one scoped supporting observation creates a `candidate`; a second independent, clear supporting observation promotes it to `active`. Silence, continued conversation, or one correct answer is not supporting evidence.
+**Then** it scans the complete visible identity/link set, checks marker and Git configuration,
+frontmatter, paths, stable IDs, stems, aliases, required sections, learning deposits, and managed
+outbound links. It ignores code examples and configured subtrees. It never calls an LLM, accesses the
+network, or modifies files.
 
-Clear conflicting feedback immediately prevents the strategy from being prioritized for the rest of the current session and sets either a `candidate` or `active` signal to `inactive`. A later clear supporting observation may restart it as `candidate`; another independent supporting session is required before it becomes active again. Signals apply only when their topic scope and teaching condition match.
+Errors block saving and commits; warnings do not. Unmanaged notes participate in name resolution and
+backlinks, but their own broken links or missing frontmatter do not produce errors.
 
-`candidate` is only a low-cost experiment under an exact scope-and-condition match; `active` may serve as the default tie-breaker when no current feedback conflicts. The lifecycle stage already encodes whether one or two independent supporting sessions exist, so no duplicate numeric support count is persisted.
+**Failure examples:** auto-fixing user notes; letting directories hide an ambiguous stem; linting only
+changed files; using lint to judge factual truth; accepting legacy session fields in learning records.
 
-**Failure examples:** creating a permanent preference from one weak interaction; counting the same session twice; reinforcing a strategy because the learner did not complain; applying a CS timing-diagram signal to unrelated financial learning; labeling the learner as a fixed “visual learner.”
+## A11. Retrieval follows identity, text, and graph links
 
-## A9. Stored memory can be inspected, corrected, and forgotten
+**Given** the Skill needs prior context for a new topic.
 
-**Given** the learner asks what is remembered, corrects an assumption, or requests that a memory be forgotten.
+**When** it retrieves from a valid Vault.
 
-**When** local data is inspected or changed.
+**Then** it tries exact ID/path/title/alias identity first, uses bounded full-text search second, and
+expands explicit links/backlinks by one hop. It retrieves knowledge relevant to the goal and
+prerequisites, plus applicable Learning Guidance; it does not equate a past learning record with
+durable mastery.
 
-**Then** explicit preferences, concept notes, topic memory, and inferred adaptation signals are distinguishable. A correction takes effect in the current session and future retrieval. Forgetting removes the targeted canonical record and derived lookup data so it is not returned later.
+Contradictory old claims are investigated rather than silently selected. An empty or unavailable
+Vault degrades to empty context without blocking teaching or triggering initialization.
 
-**Failure examples:** an opaque single profile; retaining a corrected statement in another active index; treating an explicit preference as an inference; requiring several contradictory observations before honoring a direct correction; reporting deletion while continuing to use the record.
+**Failure examples:** global prompt dumps; fuzzy text automatically merging identities; embedding
+retrieval as a requirement for v2; reinitializing because the locator is temporarily unreadable.
 
-## A10. Reaching the promised boundary triggers active closure
+## A12. Data remains readable and user-controlled
 
-**Given** all current completion items have been covered and no directly related explicit confusion remains unresolved.
+**Given** the user inspects, edits, corrects, forgets, or deeply reviews their data.
 
-**When** the Skill decides the next move.
+**When** the Skill acts.
 
-**Then** it proactively says that the agreed goal has been covered, gives a compact synthesis, and presents adjacent material only as an optional next goal. It does not wait for the learner to ask whether the lesson is over, and it does not equate delivered scope with mastery.
+**Then** ordinary Markdown remains complete without optional Obsidian plugins. Manual edits are
+canonical and unrelated content is preserved. Deletion first scans links/backlinks and previews the
+real affected set. A full-vault semantic review is explicit or suggested at a natural boundary,
+reports before modifying, and creates no learning record when the user authorizes repairs.
 
-If the learner stops before the boundary, the session closes as stopped with remaining items and a useful next step preserved; it does not report completion.
-
-**Failure examples:** automatically continuing into advanced material; asking another quiz before allowing closure; declaring mastery from immediate answers; making the learner determine whether the original goal was met; recording an early stop as completed.
-
-## A11. The same data root works across projects, and storage failure does not block teaching
-
-**Given** the learner has not initialized persistence yet.
-
-**When** the Skill first needs to save a broad learning session.
-
-**Then** it asks the learner to choose and authorize one local data directory, initializes it only after authorization succeeds, and does not claim that progress is recoverable before initialization succeeds.
-
-**Given** the learner later invokes the Skill from another project directory.
-
-**When** the Skill reads or writes learning state.
-
-**Then** it uses the same approved data root, retrieves relevant context, and writes no canonical learner state into the current project. It does not require setup again merely because the working directory changed.
-
-Only a `NOT_INITIALIZED` result may trigger the one-time data-root choice and authorization. If the configured data root is unavailable or a save fails with `STORAGE_UNAVAILABLE`, the Skill does not ask for initialization authorization again, call `init`, or switch roots. It may request runtime access to the already configured location; if access remains unavailable, it continues teaching, clearly says that current progress is not reliably recoverable, and does not report that data was saved. When storage returns, temporary content is not silently merged into an older session.
-
-**Failure examples:** writing before authorization; treating missing authorization messages in the current conversation as uninitialized; asking for a new directory after `STORAGE_UNAVAILABLE`; hidden per-project profiles; repeated initialization in every repository; silently selecting a different data root; refusing to explain because persistence failed; reporting recovery as available after a failed save; silently backfilling temporary teaching into stale state.
+**Failure examples:** a hidden database or required website; deleting a page while leaving broken
+links; overwriting handcrafted sections; silently running a background review daemon.
 
 ## Release gate
 
-The v1 release must pass A0–A7 and A10–A11 in realistic end-to-end trials, A8–A9 in deterministic integration tests, and the representative prompts in [`explanation-quality-rubric.md`](explanation-quality-rubric.md).
-
-Release evaluation focuses on useful explanations, same-turn repair, reliable pause/resume, honest scope closure, scoped correctable memory, and cross-project persistence. Diagnostic question count, learner answer rate, lesson length, and displayed mastery are not success metrics. Any behavior that turns the product into a quiz-first tutor, silently skips starting-point diagnosis, or expands indefinitely beyond the learner's goal is release-blocking.
+Release requires A0–A12 in realistic end-to-end trials, the deterministic CLI suite in
+[`tests/test_cli.py`](../tests/test_cli.py), and the representative prompts in
+[`explanation-quality-rubric.md`](explanation-quality-rubric.md).

@@ -1,6 +1,6 @@
-# LearnEverything v2 设计提案
+# LearnEverything v2 设计规范
 
-- 状态：提案，等待评审；尚未替代当前 v1 规范
+- 状态：当前规范；实现进行中
 - 日期：2026-08-29
 - 最近更新：2026-08-30
 - 范围：Skill 行为、Markdown Vault、知识组织、检索、lint、Git 与 Obsidian 使用约定

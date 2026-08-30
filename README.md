@@ -1,53 +1,69 @@
 # LearnEverything
 
-LearnEverything is an explanation-first learning mode for Codex. It helps a learner understand a new topic from an appropriate starting point, adapts the explanation when they get stuck, and preserves enough local state to pause and resume.
+LearnEverything 是一个 explanation-first（讲解优先）的 Codex Skill：它从合适起点帮助用户
+系统学懂一个主题，并在目标真实完成、用户明确确认后，把结果沉淀到用户拥有的 Obsidian
+Markdown Vault。
 
-It is not a quiz-first tutor, a mastery-scoring system, or a pre-generated curriculum.
+学习中的诊断、完成项、困惑和教学调整只存在于当前对话。中断、沉默、换 task 或提前结束均
+不保存，也不承诺跨对话恢复。聚焦问题仍然直接回答，不会被强制变成课程。
 
-## Canonical v1 design
+## 当前规范
 
-[docs/SKILL-DESIGN.zh-CN.md](docs/SKILL-DESIGN.zh-CN.md) is the single normative source for v1 product intent and the Skill/CLI boundary. The schema and acceptance scenarios are executable derived contracts; they must remain consistent with the design, and the design governs until any conflict is deliberately reconciled. Research notes are non-normative background.
+[docs/SKILL-DESIGN-v2.zh-CN.md](docs/SKILL-DESIGN-v2.zh-CN.md) 是当前产品、Skill 和 Vault
+边界的规范来源。[evals/acceptance-scenarios.md](evals/acceptance-scenarios.md) 与测试是由它派生的
+可验证契约；发生冲突时先修正规范或实现，不让两者长期分叉。
 
-## v1 decisions
+v2 的核心决定：
 
-- A user-level Codex Skill owns diagnosis, explanations, examples, visuals, repair, and closure.
-- A small local CLI owns validation, atomic persistence, and one user-approved data root that works from any project directory.
-- v1 supports one resumable learning session at a time. Focused questions are answered directly without creating a session.
-- A broad learning session resolves both a starting point and a promised target boundary. When the learner has not stated a target depth, one separate outcome-based choice is bundled with—but never replaces—the three brief prerequisite questions.
-- Explanation is the primary activity; checks and practice are optional aids for choosing the next explanation.
-- Progress means the agreed explanation boundary was covered, not that the learner was scored or certified as having mastered it.
-- Stored context is compact, scoped, inspectable, correctable, and forgettable. Raw conversations and learner-type labels are not stored.
-- Teaching adaptations use a minimal candidate → active → inactive lifecycle based only on clear, scoped feedback.
+- 学习过程零持久化，只有“已完成 + 用户随后确认保存”才写长期结果；
+- Markdown Vault 是唯一业务事实源，不再使用 SQLite；
+- `learning/` 记录每次完成历史，正常学习流程只追加；
+- `knowledge/` 是概念与 map 组成的当前知识 Wiki，通过 wikilink 表达关系；
+- `profile/Learning Guidance.md` 用两个分区区分明确偏好与有直接反馈依据的教学方式；
+- 模型负责检索、语义判断和 Markdown patch；确定性工具只负责 Vault 初始化、定位和结构 lint；
+- Obsidian 提供阅读、搜索、backlinks、Properties 和 Graph View，不另建网站或 API；
+- Git 提供版本历史和撤销，但不会收进无关的用户改动。
 
-## Design artifacts
+## 仓库结构
 
-- [docs/SKILL-DESIGN.zh-CN.md](docs/SKILL-DESIGN.zh-CN.md) — canonical Chinese v1 design.
-- [schemas/learning-state.schema.json](schemas/learning-state.schema.json) — machine-readable v1 state contract.
-- [evals/fixtures/paused-session.example.json](evals/fixtures/paused-session.example.json) — interrupted-session example conforming to the schema.
-- [evals/acceptance-scenarios.md](evals/acceptance-scenarios.md) — observable v1 behavioral requirements.
-- [evals/explanation-quality-rubric.md](evals/explanation-quality-rubric.md) — explanation and repair quality gate.
-- [docs/research-notes.md](docs/research-notes.md) — non-normative research background.
+- [skills/learn-everything](skills/learn-everything) — Skill、按需参考和 Vault 工具；
+- [docs/SKILL-DESIGN-v2.zh-CN.md](docs/SKILL-DESIGN-v2.zh-CN.md) — 当前 v2 设计规范；
+- [evals/acceptance-scenarios.md](evals/acceptance-scenarios.md) — v2 可观察验收场景；
+- [evals/explanation-quality-rubric.md](evals/explanation-quality-rubric.md) — 讲解与修复质量门槛；
+- [tests/test_cli.py](tests/test_cli.py) — `vault init/root/lint` 黑盒测试；
+- [docs/SKILL-DESIGN.zh-CN.md](docs/SKILL-DESIGN.zh-CN.md) — 历史 v1 设计，不再规范当前实现；
+- [docs/research-notes.md](docs/research-notes.md) — v1 阶段的非规范调研背景。
 
-## Current phase
+## Vault 工具
 
-The repository now contains the first MVP vertical slice under
-[`skills/learn-everything`](skills/learn-everything): a user-level Skill plus a
-standard-library Python CLI backed by SQLite. It supports initialization against one
-user-approved data root, relevant-context lookup, one resumable session, revision-safe
-checkpoints, honest closure, and inspectable/correctable/forgettable learning memory.
+工具使用 Python 标准库，无学习运行态，也不读写知识内容：
 
-Run the black-box CLI tests with:
+```bash
+skills/learn-everything/scripts/learn-everything vault init \
+  --root /absolute/path/to/vault --dry-run --format json
+
+skills/learn-everything/scripts/learn-everything vault init \
+  --root /absolute/path/to/vault --expect-plan <plan_hash> --format json
+
+skills/learn-everything/scripts/learn-everything vault root --format json
+skills/learn-everything/scripts/learn-everything vault lint --format json
+```
+
+`vault init` 必须先 dry-run，再携带完全相同计划的 `plan_hash` 执行。新建独立 Vault 默认建立
+managed Git baseline；注册已有 Vault 默认不操作 Git。完整参数和失败语义见
+[vault-and-cli.md](skills/learn-everything/references/vault-and-cli.md)。
+
+运行验证：
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 -m py_compile skills/learn-everything/scripts/learn_everything_vault.py
 ```
 
-Validate the Skill package with Codex's `skill-creator` validator. For local development,
-install `~/.codex/skills/learn-everything` as a symbolic link to the repository's
-`skills/learn-everything` directory so the repository remains the single editable source.
-On the first broad learning session, the Skill asks for a data directory before it runs
-`learn-everything init`; it does not choose a canonical learning-data location on the
-learner's behalf. If authorization is deferred, teaching can continue but is explicitly
-not recoverable yet.
+本地开发时，可把 `~/.codex/skills/learn-everything` 链接到仓库中的
+`skills/learn-everything`，让本仓库保持唯一可编辑来源。
 
-Multi-window coordination, cross-device sync, mastery models, quiz banks, and plugin distribution are outside v1.
+## v1 数据
+
+v2 不兼容也不自动迁移 v1 SQLite 数据。仓库的忽略规则继续保护可能存在的本地旧数据；只有
+用户明确选择备份、归档或删除时才处理它们。
