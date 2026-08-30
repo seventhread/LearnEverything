@@ -870,23 +870,6 @@ def validate_note_schema(note: Note, diagnostics: list[dict[str, Any]]) -> None:
                     path=note.path,
                 )
             )
-        legacy = {
-            "status",
-            "session_id",
-            "checkpoint",
-            "revision",
-            "unconfirmed_unit",
-            "open_session",
-        }
-        for field in sorted(legacy.intersection(metadata)):
-            diagnostics.append(
-                diagnostic(
-                    "LEGACY_SESSION_FIELD",
-                    "error",
-                    f"Completed learning records cannot contain {field}.",
-                    path=note.path,
-                )
-            )
     if kind == "profile":
         if note_id != "profile.learning-guidance":
             diagnostics.append(

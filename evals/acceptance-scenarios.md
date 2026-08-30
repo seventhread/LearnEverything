@@ -82,8 +82,8 @@ not replace—the three knowledge questions.
 
 The same response that resolves the diagnosis states the chosen starting point and begins a
 substantive explanation. It also summarizes the promised boundary in natural language so the user
-can tell when the learning goal is done; internal completion IDs remain hidden. No session ID or
-checkpoint is created.
+can tell when the learning goal is done; internal completion IDs remain hidden. Learning begins
+without creating persisted state.
 
 **Failure examples:** a long placement test; silently treating an old note as mastery; blocking on
 an unavailable Vault; treating shallow depth as permission to skip diagnosis; making the default
@@ -134,8 +134,8 @@ the completion gate.
 promise that the conversation can resume. A user-requested independent data-control change may
 still be saved, but it is not disguised as learning progress.
 
-**Failure examples:** an automatic legacy snapshot; a paused/open session; an “unfinished” learning
-record; silently merging temporary content into a later conversation.
+**Failure examples:** an automatic unfinished snapshot; an “unfinished” learning record; silently
+merging temporary content into a later conversation.
 
 An explicit scope clarification is different from interruption. “到这里就够了，我只想大概了解”
 narrows the promised outcome; if the already delivered content covers that new boundary, the Skill
@@ -181,7 +181,7 @@ and changes Learning Guidance only for explicit durable preferences or direct te
 The learning record links the knowledge it deposited into; knowledge-page existence does not claim
 the user has mastered it.
 
-Raw chat, diagnostic answers, per-turn events, scores, and session/checkpoint fields are absent.
+Raw chat, diagnostic answers, per-turn events, scores, and other intermediate state are absent.
 
 **Failure examples:** one monolithic topic summary replacing history; a page for every noun; duplicate
 topic/concept stores; personality inference; copying the conversation into Markdown.
@@ -221,7 +221,7 @@ Errors block saving and commits; warnings do not. Unmanaged notes participate in
 backlinks, but their own broken links or missing frontmatter do not produce errors.
 
 **Failure examples:** auto-fixing user notes; letting directories hide an ambiguous stem; linting only
-changed files; using lint to judge factual truth; accepting legacy session fields in learning records.
+changed files; using lint to judge factual truth.
 
 ## A11. Retrieval follows identity, text, and graph links
 

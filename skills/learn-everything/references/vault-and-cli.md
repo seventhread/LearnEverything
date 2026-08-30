@@ -18,7 +18,7 @@ learn-everything vault lint [--root <absolute-path>] [--base <git-rev>]
 ```
 
 所有命令无交互。`init` 写入前必须先 dry-run；没有 plan hash、hash 过期或参数组合非法时失败。
-CLI 不接收偏好或知识内容，不提供 force/fix，也没有 session、checkpoint、result 或 data 命令。
+CLI 只处理 Vault 的初始化、定位和结构检查；偏好与知识内容由模型维护。
 
 退出码：
 

@@ -37,8 +37,7 @@ Obsidian 就是首版界面。v2 不建设独立 Learning Atlas、网页前端�
 和撤销。
 
 模型直接维护 Markdown。命令行工具不再是业务数据访问层，只保留 Vault 初始化、路径定位
-和确定性 lint；它没有学习运行态或业务状态，也不保存 session、事务 receipt、投影或检索
-索引。
+和确定性 lint；学习内容与过程不进入工具。
 
 ```text
 当前对话（临时，零写入）
@@ -80,7 +79,7 @@ Markdown Wiki 服务于未来讲解，不应反过来让学习过程变成知识
 
 ### 2.2 v2 非目标
 
-- 不保存原始对话、逐轮事件、诊断答案或中间 checkpoint；
+- 不保存原始对话、逐轮事件、诊断答案或中间过程；
 - 不支持暂停、恢复、开放会话、多窗口协调或抢占；
 - 不保存未完成学习或“以后从这里继续”的恢复点；
 - 不生成掌握率、能力等级、学习者类型或人格标签；
@@ -152,7 +151,7 @@ Home 链接、profile 条目或 Git commit。
 确定目标与起点 -> 教学与修复 -> 等待结束决定 -> 已保存
 ```
 
-这些阶段不是 CLI 状态，不分配 session ID，也不创建任何 Vault 文件。
+这些阶段只用于约束当前对话；最终保存前不创建学习内容。
 
 开始学习时：
 
@@ -902,21 +901,11 @@ Git 动作、冲突列表、`plan_hash`，以及 `vault_valid`、`changed`、`no
 嵌套 Vault 或任何保留路径冲突都在写入前失败。用户面对的整体 init 只有在机械计划 no-op 且
 Learning Guidance diff 也为空时，才能报告 no-op。
 
-明确删除：
-
-```text
-session get/start/checkpoint/close
-context get
-result commit
-data inspect/correct/forget
-dashboard serve
-```
-
 工具不得承担：
 
 - LLM 调用、内容生成或知识合并；
 - topic/concept 聚合或用户画像推导；
-- session、checkpoint、幂等 receipt 或操作日志；
+- 学习过程、幂等 receipt 或操作日志；
 - SQLite、FTS、embedding、文件 watcher 或 daemon；
 - Git 历史的业务抽象；结构、身份和链接始终全量扫描，Git base 只用于比较历史状态并报告
   ID 或 learning record 的修改、移动或消失，不判断用户授权、不提交文件，也不维护 receipt；
@@ -951,9 +940,6 @@ lint 默认不联网、不调用 LLM、不修改文件，也不提供首版 `--f
 - `本次沉淀` 没有链接任何实际存在且受管的 concept/map；
 - 任一受管 note wikilink 不存在或解析到多个页面；未来概念先写普通文本或 TODO，实际建页后
   再改成 wikilink；
-- learning record 的 frontmatter 出现固定 legacy 字段集合中的任一项：`status`、
-  `session_id`、`checkpoint`、`revision`、`unconfirmed_unit`、`open_session`；文件存在和
-  `completed_at` 已足够表达完成；
 - source note 的 URL 协议非法或必要字段缺失；
 - 受管路径越出 Vault，或存在大小写碰撞。
 
@@ -1292,7 +1278,7 @@ v2 不导入 v1 的暂停会话、checkpoint、topic memory、concept note 或 S
 - 中断、沉默、换 task、诊断未完成，或用户没有修改目标且在完成门槛前停止时，没有新
   learning record；
 - 学习中检索网络不会在项目中创建 source、缓存或临时笔记；
-- 当前对话之外没有 open/paused session 状态。
+- 当前对话之外没有未完成学习的长期状态。
 
 ### 11.4 完成保存
 
@@ -1366,7 +1352,7 @@ v2 不导入 v1 的暂停会话、checkpoint、topic memory、concept note 或 S
    激活、部分成功结果和完整机械状态 no-op 测试；
 4. 在 Skill 中加入显式 init 路由；`SKILL.md` 只保留路由和核心边界，详细向导、快捷选项与失败
    语义放入按需加载的 `references/init.md`；
-5. 重写学习流程，删除 session/checkpoint，并实现完成后增量语义审阅与直接 Markdown patch；
+5. 实现完成后增量语义审阅与直接 Markdown patch；
 6. 实现基于标题、alias、`rg` 和 wikilink/backlink 的上下文检索；
 7. 加入限定路径 Git commit 和人工编辑保护测试；
 8. 用真实 Obsidian Vault 做链接、改名、Graph View 和手工编辑 smoke test；

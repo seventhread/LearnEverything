@@ -31,9 +31,7 @@ v2 的核心决定：
 - [docs/SKILL-DESIGN-v2.zh-CN.md](docs/SKILL-DESIGN-v2.zh-CN.md) — 当前 v2 设计规范；
 - [evals/acceptance-scenarios.md](evals/acceptance-scenarios.md) — v2 可观察验收场景；
 - [evals/explanation-quality-rubric.md](evals/explanation-quality-rubric.md) — 讲解与修复质量门槛；
-- [tests/test_cli.py](tests/test_cli.py) — `vault init/root/lint` 黑盒测试；
-- [docs/SKILL-DESIGN.zh-CN.md](docs/SKILL-DESIGN.zh-CN.md) — 历史 v1 设计，不再规范当前实现；
-- [docs/research-notes.md](docs/research-notes.md) — v1 阶段的非规范调研背景。
+- [tests/test_cli.py](tests/test_cli.py) — `vault init/root/lint` 黑盒测试。
 
 ## Vault 工具
 

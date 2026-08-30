@@ -511,7 +511,6 @@ updated: 2026-08-30
 id: learning.2026-02-30.bad.1
 kind: learning-record
 completed_at: 2026-02-30T10:00:00Z
-status: done
 ---
 
 # Bad record
@@ -521,7 +520,6 @@ status: done
         codes = {item["code"] for item in lint["diagnostics"]}  # type: ignore[index]
         self.assertIn("INVALID_DATETIME", codes)
         self.assertIn("LEARNING_PATH_MISMATCH", codes)
-        self.assertIn("LEGACY_SESSION_FIELD", codes)
         self.assertIn("MISSING_SECTION", codes)
         self.assertIn("LEARNING_DEPOSIT_MISSING", codes)
 
@@ -621,9 +619,6 @@ updated: 2026-08-30
         self.assertEqual(result["git"]["status"], "degraded")  # type: ignore[index]
         self.assertEqual(self.git(self.vault, "diff", "--cached", "--name-status").stdout, before)
         self.assertEqual(self.git(self.vault, "rev-parse", "HEAD").stdout.strip(), commit_before)
-
-    def test_legacy_session_commands_are_removed(self) -> None:
-        self.error("INVALID_ARGUMENT", "session", "get", "--format", "json")
 
 
 if __name__ == "__main__":
