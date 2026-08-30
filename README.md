@@ -7,6 +7,24 @@ Markdown Vault。
 学习中的诊断、完成项、困惑和教学调整只存在于当前对话。尚未覆盖确认边界时的中断、沉默、
 换 task 或停止均不保存，也不承诺跨对话恢复。聚焦问题仍然直接回答，不会被强制变成课程。
 
+## 一键安装
+
+需要本机已有 Node.js 和 npm。安装到 Codex 的用户级 skills：
+
+```bash
+npx skills add seventhread/LearnEverything \
+  --skill learn-everything --agent codex --global --yes
+```
+
+如果要交互式选择安装位置或其他受支持的 agent，可使用：
+
+```bash
+npx skills add seventhread/LearnEverything
+```
+
+安装只会添加 Skill，不会创建或修改学习数据。安装后在 Codex 中说“初始化
+LearnEverything”或使用 `$learn-everything init`，再按对话提示选择 Obsidian Vault。
+
 ## 当前规范
 
 [docs/SKILL-DESIGN-v2.zh-CN.md](docs/SKILL-DESIGN-v2.zh-CN.md) 是当前产品、Skill 和 Vault
